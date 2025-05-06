@@ -143,6 +143,11 @@ T-REX/
 
 ---
 
+## 🙏 Acknowledgments
+This project incorporates components from the open-source RESCO repository (https://github.com/Pi-Star-Lab/RESCO/tree/main) developed by Pi-Star Lab. 
+RESCO provides a Gym-compatible benchmarking environment for RL-based traffic signal control on SUMO, which has been adapted or extended in this work.
+We thank the authors for their valuable contribution to the research community.
+
 ## 🤝 Contributing
 
 We welcome community contributions!
