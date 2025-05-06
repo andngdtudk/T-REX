@@ -172,7 +172,7 @@ If you use T-REX in your research, please cite:
 @article{your2025trex,
   title={Robustness of Reinforcement Learning-Based Traffic Signal Control under Incidents: A Comparative Study},
   author={Author One, Author Two, Author Three},
-  journal={Transportation Research Part C},
+  journal={Journal},
   year={2025}
 }
 ```
