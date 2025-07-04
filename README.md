@@ -27,7 +27,7 @@ T-REX is an open-source simulation framework for training and evaluating **Reinf
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-org>/T-REX.git
+git clone https://github.com/andngdtudk/T-REX.git
 cd T-REX
 
 # Set up environment (SUMO + Python)
@@ -35,14 +35,13 @@ conda env create -f environment.yml
 conda activate trex
 
 # Run a base scenario
-python run_simulation.py --scenario grid4x4 --incident False
+python main.py --agent IDQN --map grid4x4 --eps 100 --tr 0 --strategy 1
 
 # Run an incident scenario
-python run_simulation.py --scenario grid4x4 --incident True
+python main.py --agent IDQN --map grid4x4 --eps 100 --tr 0 --strategy 2
 ```
 
-✔ Results stored in `T-REX/results/{scenario_name}/`  
-✔ RL agents can be trained using RESCO or your preferred Gym-compatible library
+✔ Results stored in `T-REX/results/{scenario_name}/`
 
 ---
 
@@ -54,11 +53,15 @@ python run_simulation.py --scenario grid4x4 --incident True
 - Python ≥ 3.8
 - TraCI (Python API for SUMO)
 - OpenAI Gym
-- RESCO (for RL interaction)
+- Set LIBSUMO_AS_TRACI to any value and give main.py --libsumo True
+- Pytorch
+- Tensorflow
+- Pfrl
+- Sumolib
 
 ```bash
 # Install SUMO (example using apt)
-sudo apt install sumo sumo-tools
+sudo apt-get install sumo sumo-tools sumo-doc
 
 # Install Python dependencies
 pip install -r requirements.txt
@@ -136,13 +139,32 @@ T-REX includes five traffic networks:
 ## 📂 Folder Structure
 
 ```bash
-T-REX/
-├── scenarios/            # Network files, traffic demand
-├── modules/              # Initializer, deployment, behavior models
-├── agents/               # RL-TSC methods and baselines
-├── results/              # Output files and logs
-├── run_simulation.py     # Main execution script
-└── environment.yml       # Conda environment definition
+├── TREX_comp/
+│   ├── __pycache__/
+│   ├── agents/
+│   ├── config/
+│   ├── rewards.py
+│   └── states.py
+│
+├── environments/
+│   ├── arterial4x4/
+│   ├── cologne1/
+│   ├── cologne3/
+│   ├── cologne8/
+│   ├── grid4x4/
+│   ├── ingolstadt1/
+│   ├── ingolstadt7/
+│   ├── ingolstadt21/
+│   └── LICENSE
+│
+├── README.md
+├── T_REX.py
+├── T_REX_logo.jpg
+├── base_env.py
+├── incident_env.py
+├── main.py
+├── requirements.txt
+└── traffic_signal.py
 ```
 
 ---
@@ -169,10 +191,13 @@ python tests/run_all_tests.py
 If you use T-REX in your research, please cite:
 
 ```bibtex
-@article{your2025trex,
-  title={Robustness of Reinforcement Learning-Based Traffic Signal Control under Incidents: A Comparative Study},
-  author={Author One, Author Two, Author Three},
-  journal={Journal},
-  year={2025}
+@misc{nguyen2025robustnessreinforcementlearningbasedtraffic,
+      title={Robustness of Reinforcement Learning-Based Traffic Signal Control under Incidents: A Comparative Study}, 
+      author={Dang Viet Anh Nguyen and Carlos Lima Azevedo and Tomer Toledo and Filipe Rodrigues},
+      year={2025},
+      eprint={2506.13836},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2506.13836}, 
 }
 ```
