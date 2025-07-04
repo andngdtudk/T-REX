@@ -16,7 +16,7 @@ T-REX is an open-source simulation framework for training and evaluating **Reinf
 
 ✅ **Incident-Aware Simulation** – Integrates random or user-defined incidents with duration, location, and lane impact.  
 ✅ **Realistic Driver Behavior** – Includes rerouting via the Information Comply Model (ICM), speed adaptation, and lane-change reactions.  
-✅ **RL-Compatible** – Interfaces with any RL algorithm using [RESCO](https://github.com/TUM-VT/RESCO) and OpenAI Gym.  
+✅ **RL-Compatible** – Interfaces with any RL algorithm using [RESCO](https://github.com/Pi-Star-Lab/RESCO) and OpenAI Gym.  
 ✅ **Network-Level Evaluation** – Supports large-scale simulations with dynamic congestion propagation.  
 ✅ **Modular Design** – Separate Initializer, Deployment, and RL interfaces for flexibility.  
 ✅ **Robustness Metrics** – Includes learning stability, performance degradation, convergence rate, and AUC comparisons.
