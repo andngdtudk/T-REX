@@ -9,7 +9,7 @@ T-REX is an open-source simulation framework for training and evaluating **Reinf
 ---
 
 <p align="left">
-  <img src="T_REX_logo-01.png" alt="T-REX Logo" width="400"/>
+  <img src="T_REX_logo-01.png" alt="T-REX Logo" width="600"/>
 </p>
 
 ## 🎯 Key Features
