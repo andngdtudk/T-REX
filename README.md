@@ -190,6 +190,8 @@ python tests/run_all_tests.py
 
 If you use T-REX in your research, please cite:
 
+Nguyen, D. V. A., Azevedo, C. L., Toledo, T., & Rodrigues, F. (2025). Robustness of Reinforcement Learning-Based Traffic Signal Control under Incidents: A Comparative Study. arXiv preprint arXiv:2506.13836.
+
 ```bibtex
 @misc{nguyen2025robustnessreinforcementlearningbasedtraffic,
       title={Robustness of Reinforcement Learning-Based Traffic Signal Control under Incidents: A Comparative Study}, 
