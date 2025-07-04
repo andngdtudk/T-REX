@@ -32,7 +32,7 @@ def parse_arguments():
     parser.add_argument("--procs", type=int, default=1, help="Number of parallel processes to use.")
 
     parser.add_argument("--pwd", type=str, default=os.path.dirname(__file__), help="Project working directory.")
-    parser.add_argument("--log_dir", type=str, default=os.path.join(os.getcwd(), 'results_test' + os.sep),
+    parser.add_argument("--log_dir", type=str, default=os.path.join(os.getcwd(), 'results' + os.sep),
                         help="Directory to save logs and results.")
 
     parser.add_argument("--gui", type=bool, default=False, help="Whether to enable SUMO GUI.")
