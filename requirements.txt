@@ -6,3 +6,4 @@ traci
 torch
 tensorflow # because you used tensorflow.compat.v1
 pfrl
+eclipse-sumo
