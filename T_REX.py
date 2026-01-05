@@ -1245,7 +1245,7 @@ class Deployment():
         - expected_gain: Delta p.
         """
         if len(actual_probs) == 0 or len(typical_probs) == 0:
-            return []
+            return None
         noisy_actual_probs = self.add_information_noise(actual_probs)
 
         numerator = np.dot(noisy_actual_probs, typical_probs)
@@ -1267,7 +1267,7 @@ class Deployment():
         - avoided_loss: Delta w.
         """
         if len(actual_probs) == 0 or len(typical_probs) == 0:
-            return []
+            return None
         noisy_actual_probs = self.add_information_noise(actual_probs)
 
         numerator = np.dot(typical_probs, arc_costs) - np.dot(noisy_actual_probs, arc_costs)
@@ -1277,28 +1277,25 @@ class Deployment():
         return numerator / denominator
 
 
-    def reroute_model(self, actual_probs, typical_probs, arc_costs, beta_0, beta_gain, beta_loss):
+    def reroute_model(self, actual_probs, typical_probs, arc_costs,
+                  beta_0, beta_gain, beta_loss):
         """
-        Calculate the rerouting probability (kappa) using the logit model.
-        
-        Parameters:
-        - delta_p: Expected gain (Delta p).
-        - delta_w: Avoided loss (Delta w).
-        - beta_gain: Sensitivity to expected gain.
-        - beta_loss: Sensitivity to avoided loss.
-        - beta_0: control general willingness to reroute
-        
-        Returns:
-        - rerouting_probability: Probability of rerouting.
+        Logit rerouting probability.
+        Returns 0.0 if expected gain or avoided loss is undefined (None).
         """
 
         delta_p = self.calculate_expected_gain(actual_probs, typical_probs)
         delta_w = self.calculate_avoided_loss(actual_probs, typical_probs, arc_costs)
-        if delta_p == [] or delta_w == []:
-            return 0
+
+        if delta_p is None or delta_w is None:
+            return 0.0
+
+        delta_p = float(delta_p)
+        delta_w = float(delta_w)
+
         v_reroute = beta_0 + beta_gain * delta_p - beta_loss * delta_w
-        reroute_prob = 1 / (1 + np.exp(-v_reroute))
-        return reroute_prob
+        reroute_prob = 1.0 / (1.0 + np.exp(-v_reroute))
+        return float(reroute_prob)
 
     def calculate_combined_awareness(self, step, vehicle_id):
         """
