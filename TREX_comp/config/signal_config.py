@@ -1327,4 +1327,5 @@ signal_configs = {
 			}
 		}
 	},
+    'kbh_red': {}
 }
