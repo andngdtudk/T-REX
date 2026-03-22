@@ -6,7 +6,7 @@ import numpy as np
 import traci
 import sumolib
 import gym
-from traffic_signal import Signal
+from traffic_signal import Signal, ensure_map_signal_control_config, export_map_signal_config
 
 class BaseEnv(gym.Env):
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False, end_time=3600,
@@ -55,6 +55,8 @@ class BaseEnv(gym.Env):
             for lightID in self.signal_ids
         }
 
+        ensure_map_signal_control_config(self.map_name, self.phases)
+
 
         self.signals = dict()
 
@@ -68,6 +70,9 @@ class BaseEnv(gym.Env):
         self.action_space = list()
         for ts in self.all_ts_ids:
             self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+        exported_file = export_map_signal_config(self.map_name)
+        if exported_file is not None:
+            print('Generated signal config file:', exported_file)
         for ts in self.all_ts_ids:
             self.signals[ts].signals = self.signals
             self.signals[ts].observe(self.step_length, self.max_distance)

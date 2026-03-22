@@ -1,6 +1,7 @@
 import traci
 import copy
-import re
+from pathlib import Path
+from pprint import pformat
 from TREX_comp.config.signal_config import signal_configs
 
 
@@ -24,8 +25,92 @@ def create_yellows(phases, yellow_length):
     return new_phases, yellow_dict
 
 
+def ensure_map_signal_control_config(map_name, phases_by_signal):
+    cfg = signal_configs.setdefault(map_name, {})
+    if 'phase_pairs' in cfg and 'valid_acts' in cfg:
+        return
+
+    phase_pairs, valid_acts = infer_phase_pairs_and_valid_acts(phases_by_signal)
+    cfg['phase_pairs'] = phase_pairs
+    cfg['valid_acts'] = valid_acts
+
+    # Emit copy-pasteable config snippet in the same style used in signal_config.py.
+    print('GENERATED MAP CONTROL CONFIG')
+    print("'" + map_name + "': {")
+    print("'phase_pairs':" + str(phase_pairs) + ',')
+    print("'valid_acts':" + str(valid_acts) + ',')
+    print('},')
+
+
+def export_map_signal_config(map_name):
+    cfg = signal_configs.get(map_name)
+    if cfg is None:
+        return None
+
+    if 'phase_pairs' not in cfg or 'valid_acts' not in cfg:
+        return None
+
+    out_dir = Path(__file__).resolve().parent / 'TREX_comp' / 'config' / 'generated'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f'{map_name}_signal_config.py'
+
+    # Keep key order so output resembles the hand-written format in signal_config.py.
+    map_block = {map_name: cfg}
+    content = (
+        '# Auto-generated signal config block\n'
+        '# Paste the map entry into TREX_comp/config/signal_config.py if desired.\n\n'
+        + pformat(map_block, sort_dicts=False, width=120)
+    )
+    out_file.write_text(content, encoding='utf-8')
+    return str(out_file)
+
+
+def infer_phase_pairs_and_valid_acts(phases_by_signal):
+    phase_pairs = []
+    valid_acts = {}
+
+    for signal_id, phases in phases_by_signal.items():
+        signal_valid = {}
+        for local_phase_idx, phase in enumerate(phases):
+            pair = infer_phase_pair_from_state(phase.state)
+            # Keep one phase-pair entry per local phase to avoid collisions
+            # when two phases map to the same inferred movement pair.
+            phase_pairs.append(pair)
+            pair_index = len(phase_pairs) - 1
+            signal_valid[pair_index] = local_phase_idx
+        valid_acts[signal_id] = signal_valid
+
+    return phase_pairs, valid_acts
+
+
+def infer_phase_pair_from_state(state):
+    active_movements = []
+    # Link-state strings are ordered by controlled link index. This project maps
+    # links in groups of 3 per movement, with 12 total movements per intersection.
+    for idx, sig_state in enumerate(state):
+        movement = idx // 3
+        if movement >= 12:
+            break
+        if sig_state == 'g' or sig_state == 'G':
+            active_movements.append(movement)
+
+    if len(active_movements) == 0:
+        return [0, 1]
+
+    # Rank movements by how many green links they control in this phase.
+    counts = {}
+    for movement in active_movements:
+        counts[movement] = counts.get(movement, 0) + 1
+
+    ranked = sorted(counts.keys(), key=lambda movement: (-counts[movement], movement))
+    if len(ranked) == 1:
+        return [ranked[0], ranked[0]]
+    return [ranked[0], ranked[1]]
+
+
 class Signal:
     def __init__(self, map_name, sumo, id, yellow_length, phases):
+        self.map_name = map_name
         self.sumo = sumo
         self.id = id
         self.yellow_time = yellow_length
@@ -103,6 +188,39 @@ class Signal:
         self.full_observation = None
         self.last_step_vehicles = None
 
+    def _build_inbound_lane_to_signal_map(self):
+        lane_to_signal = {}
+        for signal_id in self.sumo.trafficlight.getIDList():
+            for link_group in self.sumo.trafficlight.getControlledLinks(signal_id):
+                if len(link_group) == 0:
+                    continue
+                inbound_lane = link_group[0][0]
+                if inbound_lane not in lane_to_signal:
+                    lane_to_signal[inbound_lane] = signal_id
+        return lane_to_signal
+
+    def _infer_downstream_signal(self, links, inbound_lanes, lane_to_signal):
+        if inbound_lanes is None or len(inbound_lanes) == 0:
+            return None
+
+        for link_group in links:
+            if len(link_group) == 0:
+                continue
+            link = link_group[0]  # link[0] inbound lane, link[1] outbound lane
+            in_lane, out_lane = link[0], link[1]
+            if in_lane not in inbound_lanes:
+                continue
+
+            # Internal lanes (starting with ':') do not represent downstream approaches.
+            if out_lane.startswith(':'):
+                continue
+
+            downstream_signal = lane_to_signal.get(out_lane)
+            if downstream_signal is not None and downstream_signal != self.id:
+                return downstream_signal
+
+        return None
+
     def generate_config(self):
         print('GENERATING CONFIG')
         # TODO raise Exception('Invalid signal config')
@@ -111,57 +229,39 @@ class Signal:
         self.lane_sets = {}
         for idx, movement in index_to_movement.items():
             self.lane_sets[movement] = []
-        self.lane_sets_outbound = {}
+        self.lane_sets_outbound = {movement: [] for movement in index_to_movement.values()}
         self.downstream = {'N': None, 'E': None, 'S': None, 'W': None}
 
         links = self.sumo.trafficlight.getControlledLinks(self.id)
-        #print(self.id, links)
         for i, link in enumerate(links):
+            if len(link) == 0:
+                continue
             link = link[0]  # unpack so link[0] is inbound, link[1] outbound
             if link[0] not in self.lanes: self.lanes.append(link[0])
             # Group of lanes constituting a direction of traffic
             if i % 3 == 0:
                 index = int(i/3)
-                self.lane_sets[index_to_movement[index]].append(link[0])
-        #print(self.id, self.lane_sets)
-        """split = self.lane_sets['S-W'][0].split('_')[0]
-        if 'np' not in split: self.downstream['N'] = split
-        split = self.lane_sets['W-N'][0].split('_')[0]
-        if 'np' not in split: self.downstream['E'] = split
-        split = self.lane_sets['N-E'][0].split('_')[0]
-        if 'np' not in split: self.downstream['S'] = split
-        split = self.lane_sets['E-S'][0].split('_')[0]
-        if 'np' not in split: self.downstream['W'] = split"""
-        lane = self.lane_sets['S-S'][0]
-        fr_sig = re.findall('[a-zA-Z]+[0-9]+', lane)[0]
-        fringes, isfringe = ['top', 'right', 'left', 'bottom'], False
-        for fringe in fringes:
-            if fringe in fr_sig: isfringe = True
-        if not isfringe: self.downstream['N'] = fr_sig
+                if index in index_to_movement:
+                    self.lane_sets[index_to_movement[index]].append(link[0])
 
-        lane = self.lane_sets['N-N'][0]
-        fr_sig = re.findall('[a-zA-Z]+[0-9]+', lane)[0]
-        fringes, isfringe = ['top', 'right', 'left', 'bottom'], False
-        for fringe in fringes:
-            if fringe in fr_sig: isfringe = True
-        if not isfringe: self.downstream['S'] = fr_sig
+        # Infer downstream intersections from outbound lanes of straight movements.
+        lane_to_signal = self._build_inbound_lane_to_signal_map()
+        self.downstream['N'] = self._infer_downstream_signal(links, self.lane_sets['S-S'], lane_to_signal)
+        self.downstream['S'] = self._infer_downstream_signal(links, self.lane_sets['N-N'], lane_to_signal)
+        self.downstream['E'] = self._infer_downstream_signal(links, self.lane_sets['W-W'], lane_to_signal)
+        self.downstream['W'] = self._infer_downstream_signal(links, self.lane_sets['E-E'], lane_to_signal)
 
-        lane = self.lane_sets['W-W'][0]
-        fr_sig = re.findall('[a-zA-Z]+[0-9]+', lane)[0]
-        fringes, isfringe = ['top', 'right', 'left', 'bottom'], False
-        for fringe in fringes:
-            if fringe in fr_sig: isfringe = True
-        if not isfringe: self.downstream['E'] = fr_sig
-
-        lane = self.lane_sets['E-E'][0]
-        fr_sig = re.findall('[a-zA-Z]+[0-9]+', lane)[0]
-        fringes, isfringe = ['top', 'right', 'left', 'bottom'], False
-        for fringe in fringes:
-            if fringe in fr_sig: isfringe = True
-        if not isfringe: self.downstream['W'] = fr_sig
         print("'"+self.id+"'"+": {")
         print("'lane_sets':"+str(self.lane_sets)+',')
         print("'downstream':"+str(self.downstream)+'},')
+
+        # Cache generated signal configuration in-memory so later resets can reuse it.
+        map_config = signal_configs.get(self.map_name)
+        if map_config is not None:
+            map_config[self.id] = {
+                'lane_sets': self.lane_sets,
+                'downstream': self.downstream
+            }
 
         # print(self.id)
         # print(self.sumo.trafficlight.getControlledLinks(self.id))
