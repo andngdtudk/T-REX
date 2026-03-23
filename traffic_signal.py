@@ -239,6 +239,7 @@ class Signal:
             link = link[0]  # unpack so link[0] is inbound, link[1] outbound
             if link[0] not in self.lanes: self.lanes.append(link[0])
             # Group of lanes constituting a direction of traffic
+            # right, left, straight
             if i % 3 == 0:
                 index = int(i/3)
                 if index in index_to_movement:
