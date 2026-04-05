@@ -21,17 +21,11 @@ class IDQN(IndependentAgent):
             obs_space = obs_act[key][0]
             act_space = obs_act[key][1]
 
-            def conv2d_size_out(size, kernel_size=2, stride=1):
-                return (size - (kernel_size - 1) - 1) // stride + 1
-
-            h = conv2d_size_out(obs_space[1])
-            w = conv2d_size_out(obs_space[2])
-
             model = nn.Sequential(
                 nn.Conv2d(obs_space[0], 64, kernel_size=(2, 2)),
                 nn.ReLU(),
                 nn.Flatten(),
-                nn.Linear(h * w * 64, 64),
+                nn.LazyLinear(64),
                 nn.ReLU(),
                 nn.Linear(64, 64),
                 nn.ReLU(),

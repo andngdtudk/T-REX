@@ -121,9 +121,11 @@ def run_trial(args, trial):
     # === Agent Setup ===
     alg = agt_config['agent']
     num_steps_eps = int((map_config['end_time'] - map_config['start_time']) / map_config['step_length'])
+    train_eps = max(1, int(args.eps * 0.8))
+    train_steps = max(1, train_eps * num_steps_eps)
     agt_config.update({
-        'episodes': int(args.eps * 0.8),
-        'steps': int(args.eps * 0.8) * num_steps_eps,
+        'episodes': train_eps,
+        'steps': train_steps,
         'log_dir': os.path.join(args.log_dir, env.connection_name),
         'num_lights': len(env.all_ts_ids),
         'save_freq': 50 if alg.__name__ in {'IPPO', 'FMA2C'} else 10,
@@ -204,7 +206,8 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
 
 
 def run_episode(env, agent, obs=None):
-    obs = env.reset()
+    if obs is None:
+        obs = env.reset()
     done = False
     while not done:
         act = agent.act(obs)
