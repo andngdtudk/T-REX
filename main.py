@@ -24,7 +24,7 @@ def parse_arguments():
 
     parser.add_argument("--map", type=str, default='grid4x4',
                         choices=['grid4x4', 'arterial4x4', 'ingolstadt1', 'ingolstadt7', 'ingolstadt21',
-                                 'cologne1', 'cologne3', 'cologne8', "kbh_red"],
+                                 'cologne1', 'cologne3', 'cologne8', "kbh_red", "kbh_red_2", "kbh_red_3"],
                         help="Specify the traffic network map.")
 
     parser.add_argument("--trials", type=int, default=1, help="Number of trials to run.")
