@@ -12,6 +12,11 @@ from incident_env import IncidentEnv
 from base_env import BaseEnv
 
 
+AGENT_ALIASES = {
+    'FMA2CFull': 'FMA2CFULL',
+}
+
+
 
 def parse_arguments():
     """Parses command-line arguments."""
@@ -75,12 +80,15 @@ def main():
 
 def run_trial(args, trial):
     # === Load Configurations ===
-    mdp_config = mdp_configs.get(args.agent, {}).get(args.map)
-    agt_config = agent_configs[args.agent]
+    agent_key = AGENT_ALIASES.get(args.agent, args.agent)
+    mdp_key = args.agent if args.agent in mdp_configs else agent_key
+
+    mdp_config = mdp_configs.get(mdp_key, {}).get(args.map)
+    agt_config = agent_configs[agent_key]
     map_config = map_configs[args.map]
 
     if mdp_config:
-        mdp_configs[args.agent] = mdp_config
+        mdp_configs[mdp_key] = mdp_config
         agt_config['mdp'] = mdp_config
         management = mdp_config.get('management')
         if management:
@@ -119,7 +127,7 @@ def run_trial(args, trial):
         max_green_hold_steps=args.max_green_hold,
     )
 
-    if args.agent in {'FMA2C', 'FMA2CFull', 'FMA2CVAL'}:
+    if mdp_key in {'FMA2C', 'FMA2CFull', 'FMA2CVAL'}:
         runtime_mdp = agt_config.get('mdp', {})
         if 'management' not in runtime_mdp:
             manager = 'top_mgr'
@@ -146,7 +154,7 @@ def run_trial(args, trial):
             runtime_mdp['supervisors'].setdefault(signal_id, default_manager)
 
         agt_config['mdp'] = runtime_mdp
-        mdp_configs[args.agent] = runtime_mdp
+    mdp_configs[mdp_key] = runtime_mdp
 
     # === Agent Setup ===
     alg = agt_config['agent']
