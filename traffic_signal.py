@@ -234,6 +234,7 @@ class Signal:
         # TODO raise Exception('Invalid signal config')
         index_to_movement = {0: 'S-W', 1: 'S-S', 2: 'S-E', 3: 'W-N', 4: 'W-W', 5: 'W-S', 6: 'N-E',
                              7: 'N-N', 8: 'N-W', 9: 'E-S', 10: 'E-E', 11: 'E-N'}
+        reversed_directions = {'N': 'S', 'E': 'W', 'S': 'N', 'W': 'E'}
         self.lane_sets = {}
         for idx, movement in index_to_movement.items():
             self.lane_sets[movement] = []
@@ -263,6 +264,19 @@ class Signal:
                 index = int(i/3)
                 if index in index_to_movement:
                     self.lane_sets[index_to_movement[index]].append(selected_link[0])
+
+        # Build inbound lanes grouped by the direction they come from.
+        self.inbounds_fr_direction = {}
+        for direction in self.lane_sets:
+            for lane in self.lane_sets[direction]:
+                inbound_to_direction = direction.split('-')[0]
+                inbound_fr_direction = reversed_directions[inbound_to_direction]
+                if inbound_fr_direction in self.inbounds_fr_direction:
+                    dir_lanes = self.inbounds_fr_direction[inbound_fr_direction]
+                    if lane not in dir_lanes:
+                        dir_lanes.append(lane)
+                else:
+                    self.inbounds_fr_direction[inbound_fr_direction] = [lane]
 
         # Infer downstream intersections from outbound lanes of straight movements.
         lane_to_signal = self._build_inbound_lane_to_signal_map()

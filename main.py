@@ -80,6 +80,7 @@ def run_trial(args, trial):
     map_config = map_configs[args.map]
 
     if mdp_config:
+        mdp_configs[args.agent] = mdp_config
         agt_config['mdp'] = mdp_config
         management = mdp_config.get('management')
         if management:
@@ -117,6 +118,35 @@ def run_trial(args, trial):
         level=2 if args.strategy == 2 else None,
         max_green_hold_steps=args.max_green_hold,
     )
+
+    if args.agent in {'FMA2C', 'FMA2CFull', 'FMA2CVAL'}:
+        runtime_mdp = agt_config.get('mdp', {})
+        if 'management' not in runtime_mdp:
+            manager = 'top_mgr'
+            runtime_mdp = {
+                'coef': 0.4,
+                'coop_gamma': 0.9,
+                'clip_wave': 4.0,
+                'clip_wait': 4.0,
+                'norm_wave': 5.0,
+                'norm_wait': 100.0,
+                'alpha': 0.75,
+                'management': {manager: list(env.all_ts_ids)},
+                'management_neighbors': {manager: []},
+            }
+
+        management = runtime_mdp.get('management', {})
+        runtime_mdp['supervisors'] = {
+            worker: mgr
+            for mgr, workers in management.items()
+            for worker in workers
+        }
+        default_manager = next(iter(management), 'top_mgr')
+        for signal_id in env.all_ts_ids:
+            runtime_mdp['supervisors'].setdefault(signal_id, default_manager)
+
+        agt_config['mdp'] = runtime_mdp
+        mdp_configs[args.agent] = runtime_mdp
 
     # === Agent Setup ===
     alg = agt_config['agent']

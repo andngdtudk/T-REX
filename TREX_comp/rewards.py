@@ -3,6 +3,56 @@ import numpy as np
 from TREX_comp.config.mdp_config import mdp_configs
 
 
+def _resolve_fma_config(config_key, signals):
+    config = mdp_configs.get(config_key, {})
+
+    # If config is not map-resolved yet or map has no hand-written entry,
+    # fall back to a single manager that supervises all active signals.
+    management = config.get('management') if isinstance(config, dict) else None
+    if not management:
+        management = {'top_mgr': list(signals.keys())}
+
+    management_neighbors = config.get('management_neighbors') if isinstance(config, dict) else None
+    if not management_neighbors:
+        management_neighbors = {manager: [] for manager in management}
+    else:
+        manager_ids = set(management.keys())
+        management_neighbors = {
+            manager: [neighbor for neighbor in neighbors if neighbor in manager_ids]
+            for manager, neighbors in management_neighbors.items()
+        }
+        for manager in management:
+            management_neighbors.setdefault(manager, [])
+
+    supervisors = config.get('supervisors') if isinstance(config, dict) else None
+    if not supervisors:
+        supervisors = {
+            worker: manager
+            for manager, workers in management.items()
+            for worker in workers
+        }
+
+    default_manager = next(iter(management))
+    for signal_id in signals:
+        supervisors.setdefault(signal_id, default_manager)
+
+    resolved = {
+        'coef': config.get('coef', 0.4) if isinstance(config, dict) else 0.4,
+        'coop_gamma': config.get('coop_gamma', 0.9) if isinstance(config, dict) else 0.9,
+        'clip_wave': config.get('clip_wave', 4.0) if isinstance(config, dict) else 4.0,
+        'clip_wait': config.get('clip_wait', 4.0) if isinstance(config, dict) else 4.0,
+        'norm_wave': config.get('norm_wave', 5.0) if isinstance(config, dict) else 5.0,
+        'norm_wait': config.get('norm_wait', 100.0) if isinstance(config, dict) else 100.0,
+        'alpha': config.get('alpha', 0.75) if isinstance(config, dict) else 0.75,
+        'management': management,
+        'management_neighbors': management_neighbors,
+        'supervisors': supervisors,
+    }
+
+    mdp_configs[config_key] = resolved
+    return resolved
+
+
 def wait(signals):
     rewards = dict()
     for signal_id in signals:
@@ -70,7 +120,7 @@ def queue_maxwait_neighborhood(signals):
 
 
 def fma2c(signals):
-    fma2c_config = mdp_configs['FMA2C']
+    fma2c_config = _resolve_fma_config('FMA2C', signals)
     management = fma2c_config['management']
     supervisors = fma2c_config['supervisors']   # reverse of management
     management_neighbors = fma2c_config['management_neighbors']
@@ -137,7 +187,7 @@ def fma2c(signals):
 
 
 def fma2c_full(signals):
-    fma2c_config = mdp_configs['FMA2CFull']
+    fma2c_config = _resolve_fma_config('FMA2CFull', signals)
     management = fma2c_config['management']
     supervisors = fma2c_config['supervisors']   # reverse of management
     management_neighbors = fma2c_config['management_neighbors']
