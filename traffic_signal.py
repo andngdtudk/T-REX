@@ -85,12 +85,12 @@ def infer_phase_pairs_and_valid_acts(phases_by_signal):
 
 def infer_phase_pair_from_state(state):
     active_movements = []
-    # Link-state strings are ordered by controlled link index. This project maps
-    # links in groups of 3 per movement, with 12 total movements per intersection.
+    # Link-state strings are ordered by controlled-link index, but the number of
+    # links per junction can vary widely. Bucket the full state into 12 bins so
+    # every green bit contributes to one movement index used by MPLight/MAXPRESSURE.
+    state_len = max(1, len(state))
     for idx, sig_state in enumerate(state):
-        movement = idx // 3
-        if movement >= 12:
-            break
+        movement = min(11, int((idx * 12) / state_len))
         if sig_state == 'g' or sig_state == 'G':
             active_movements.append(movement)
 
@@ -109,12 +109,18 @@ def infer_phase_pair_from_state(state):
 
 
 class Signal:
-    def __init__(self, map_name, sumo, id, yellow_length, phases):
+    def __init__(self, map_name, sumo, id, yellow_length, phases, max_green_hold_steps=12):
         self.map_name = map_name
         self.sumo = sumo
         self.id = id
         self.yellow_time = yellow_length
         self.next_phase = 0
+        self.num_green_phases = len(phases)
+        if max_green_hold_steps is None:
+            self.max_green_hold_steps = None
+        else:
+            self.max_green_hold_steps = max(1, int(max_green_hold_steps))
+        self._same_green_decisions = 0
 
         links = self.sumo.trafficlight.getControlledLinks(self.id)
         lanes = []
@@ -194,9 +200,13 @@ class Signal:
             for link_group in self.sumo.trafficlight.getControlledLinks(signal_id):
                 if len(link_group) == 0:
                     continue
-                inbound_lane = link_group[0][0]
-                if inbound_lane not in lane_to_signal:
-                    lane_to_signal[inbound_lane] = signal_id
+                for link in link_group:
+                    inbound_lane = link[0]
+                    if inbound_lane.startswith(':'):
+                        continue
+                    if inbound_lane not in lane_to_signal:
+                        lane_to_signal[inbound_lane] = signal_id
+                    break
         return lane_to_signal
 
     def _infer_downstream_signal(self, links, inbound_lanes, lane_to_signal):
@@ -206,18 +216,16 @@ class Signal:
         for link_group in links:
             if len(link_group) == 0:
                 continue
-            link = link_group[0]  # link[0] inbound lane, link[1] outbound lane
-            in_lane, out_lane = link[0], link[1]
-            if in_lane not in inbound_lanes:
-                continue
+            for link in link_group:
+                in_lane, out_lane = link[0], link[1]
+                if in_lane.startswith(':') or out_lane.startswith(':'):
+                    continue
+                if in_lane not in inbound_lanes:
+                    continue
 
-            # Internal lanes (starting with ':') do not represent downstream approaches.
-            if out_lane.startswith(':'):
-                continue
-
-            downstream_signal = lane_to_signal.get(out_lane)
-            if downstream_signal is not None and downstream_signal != self.id:
-                return downstream_signal
+                downstream_signal = lane_to_signal.get(out_lane)
+                if downstream_signal is not None and downstream_signal != self.id:
+                    return downstream_signal
 
         return None
 
@@ -233,17 +241,28 @@ class Signal:
         self.downstream = {'N': None, 'E': None, 'S': None, 'W': None}
 
         links = self.sumo.trafficlight.getControlledLinks(self.id)
-        for i, link in enumerate(links):
-            if len(link) == 0:
+        for i, link_group in enumerate(links):
+            if len(link_group) == 0:
                 continue
-            link = link[0]  # unpack so link[0] is inbound, link[1] outbound
-            if link[0] not in self.lanes: self.lanes.append(link[0])
+
+            # Prefer external inbound lanes; internal connector lanes (':...')
+            # should not be used as approach detectors.
+            selected_link = None
+            for link in link_group:
+                if not link[0].startswith(':'):
+                    selected_link = link
+                    break
+            if selected_link is None:
+                continue
+
+            if selected_link[0] not in self.lanes:
+                self.lanes.append(selected_link[0])
             # Group of lanes constituting a direction of traffic
             # right, left, straight
             if i % 3 == 0:
                 index = int(i/3)
                 if index in index_to_movement:
-                    self.lane_sets[index_to_movement[index]].append(link[0])
+                    self.lane_sets[index_to_movement[index]].append(selected_link[0])
 
         # Infer downstream intersections from outbound lanes of straight movements.
         lane_to_signal = self._build_inbound_lane_to_signal_map()
@@ -275,11 +294,26 @@ class Signal:
         return self.sumo.trafficlight.getPhase(self.id)
 
     def prep_phase(self, new_phase):
-        if self.phase == new_phase:
-            self.next_phase = self.phase
+        current_phase = int(self.phase)
+        requested_phase = int(new_phase)
+
+        # Guard against long-term starvation by forcing a phase change when
+        # the same green phase has been repeatedly held for too long.
+        if self.max_green_hold_steps is not None and self.num_green_phases > 1:
+            if current_phase == requested_phase:
+                self._same_green_decisions += 1
+            else:
+                self._same_green_decisions = 0
+
+            if self._same_green_decisions >= self.max_green_hold_steps:
+                requested_phase = (current_phase + 1) % self.num_green_phases
+                self._same_green_decisions = 0
+
+        if current_phase == requested_phase:
+            self.next_phase = current_phase
         else:
-            self.next_phase = new_phase
-            key = str(self.phase) + '_' + str(new_phase)
+            self.next_phase = requested_phase
+            key = str(current_phase) + '_' + str(requested_phase)
             if key in self.yellow_dict:
                 yel_idx = self.yellow_dict[key]
                 self.sumo.trafficlight.setPhase(self.id, yel_idx)  # turns yellow

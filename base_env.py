@@ -11,7 +11,7 @@ from traffic_signal import Signal, ensure_map_signal_control_config, export_map_
 class BaseEnv(gym.Env):
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False, end_time=3600,
                  step_length=10, yellow_length=4, step_ratio=1, max_distance=200, lights=(), log_dir='/', libsumo=False,
-                 warmup=0, gymma=False, run=0, level=None):
+                 warmup=0, gymma=False, run=0, level=None, max_green_hold_steps=12):
         self.libsumo = libsumo
         self.gymma = gymma  # gymma expects sequential list of states/rewards instead of dict
         print(map_name, net, state_fn.__name__, reward_fn.__name__)
@@ -23,6 +23,7 @@ class BaseEnv(gym.Env):
         self.reward_fn = reward_fn
         self.max_distance = max_distance
         self.warmup = warmup
+        self.max_green_hold_steps = max_green_hold_steps
 
         self.end_time = end_time
         self.step_length = step_length
@@ -69,7 +70,14 @@ class BaseEnv(gym.Env):
         self.observation_space = list()
         self.action_space = list()
         for ts in self.all_ts_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
         exported_file = export_map_signal_config(self.map_name)
         if exported_file is not None:
             print('Generated signal config file:', exported_file)
@@ -152,7 +160,14 @@ class BaseEnv(gym.Env):
             self.signal_ids.append(self.all_ts_ids[i])
 
         for ts in self.signal_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
             self.wait_metric[ts] = 0.0
         for ts in self.signal_ids:
             self.signals[ts].signals = self.signals

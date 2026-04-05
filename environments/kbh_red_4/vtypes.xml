@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Vehicle type definitions for Copenhagen scenario -->
+<additional>
+    <vType id="car" vClass="passenger" color="1,0.7,0" maxSpeed="13.89"
+           accel="2.6" decel="4.5" sigma="0.5" length="5.0"
+           minGap="2.5" speedFactor="1.0" speedDev="0.1"/>
+
+    <vType id="bike" vClass="bicycle" color="0,0.7,0" maxSpeed="5.56"
+           accel="1.2" decel="3.0" sigma="0.5" length="1.8"
+           minGap="1.0" width="0.65" speedFactor="1.0" speedDev="0.2"/>
+
+    <vType id="ped" vClass="pedestrian" color="0.4,0.4,1" maxSpeed="1.39"
+           speedFactor="1.0" speedDev="0.2"/>
+</additional>

@@ -24,7 +24,8 @@ def parse_arguments():
 
     parser.add_argument("--map", type=str, default='grid4x4',
                         choices=['grid4x4', 'arterial4x4', 'ingolstadt1', 'ingolstadt7', 'ingolstadt21',
-                                 'cologne1', 'cologne3', 'cologne8', "kbh_red", "kbh_red_2", "kbh_red_3"],
+                                 'cologne1', 'cologne3', 'cologne8', "kbh_red", "kbh_red_2", "kbh_red_3",
+                                 "kbh_red_4"],
                         help="Specify the traffic network map.")
 
     parser.add_argument("--trials", type=int, default=1, help="Number of trials to run.")
@@ -47,6 +48,12 @@ def parse_arguments():
     parser.add_argument("--repeat", type=int, default=0,
                         help="How many episodes to repeat incidents from training in testing.")
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate for the agent.")
+    parser.add_argument(
+        "--max_green_hold",
+        type=int,
+        default=12,
+        help="Maximum consecutive control decisions to keep the same green phase before forcing a switch.",
+    )
     
     return parser.parse_args()
 
@@ -107,7 +114,8 @@ def run_trial(args, trial):
         libsumo=args.libsumo,
         warmup=map_config['warmup'],
         run=args.seps,
-        level=2 if args.strategy == 2 else None
+        level=2 if args.strategy == 2 else None,
+        max_green_hold_steps=args.max_green_hold,
     )
 
     # === Agent Setup ===

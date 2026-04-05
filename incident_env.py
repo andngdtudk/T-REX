@@ -12,7 +12,8 @@ class IncidentEnv(gym.Env):
 
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False,
                  end_time=3600, step_length=10, yellow_length=4, step_ratio=1,
-                 max_distance=300, lights=(), log_dir='/', libsumo=False, warmup=100, gymma=False, run=0, level=2):
+                 max_distance=300, lights=(), log_dir='/', libsumo=False, warmup=100, gymma=False, run=0, level=2,
+                 max_green_hold_steps=12):
 
         # === Basic setup ===
         self.run = run
@@ -26,6 +27,7 @@ class IncidentEnv(gym.Env):
         self.state_fn = state_fn
         self.reward_fn = reward_fn
         self.max_distance = max_distance
+        self.max_green_hold_steps = max_green_hold_steps
         self.warmup = warmup
         self.level = level
         self.start_time = 1
@@ -123,7 +125,14 @@ class IncidentEnv(gym.Env):
 
         # Initialize signals and their observations
         for ts in self.all_ts_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
 
         for ts in self.all_ts_ids:
             self.signals[ts].signals = self.signals
@@ -224,7 +233,14 @@ class IncidentEnv(gym.Env):
 
         # Re-initialize controlled signals
         for ts in self.signal_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
             self.wait_metric[ts] = 0.0
 
         for ts in self.signal_ids:
