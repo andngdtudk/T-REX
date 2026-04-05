@@ -40,17 +40,11 @@ class PFRLPPOAgent(Agent):
     def __init__(self, config, obs_space, act_space):
         super().__init__()
 
-        def conv2d_size_out(size, kernel_size=2, stride=1):
-            return (size - (kernel_size - 1) - 1) // stride + 1
-
-        h = conv2d_size_out(obs_space[1])
-        w = conv2d_size_out(obs_space[2])
-
         self.model = nn.Sequential(
             lecun_init(nn.Conv2d(obs_space[0], 64, kernel_size=(2, 2))),
             nn.ReLU(),
             nn.Flatten(),
-            lecun_init(nn.Linear(h*w*64, 64)),
+            nn.LazyLinear(64),
             nn.ReLU(),
             lecun_init(nn.Linear(64, 64)),
             nn.ReLU(),
