@@ -31,6 +31,7 @@ class BaseEnv(gym.Env):
         self.step_ratio = step_ratio
         self.connection_name = run_name + '-' + map_name + '---' + state_fn.__name__ + '-' + reward_fn.__name__
         self.map_name = map_name
+        self.force_jupedsim = map_name in {'kbh_full_multimodal', 'kbh_full_multimodal_mod'}
 
         # Run some steps in the simulation with default light configurations to detect phases
         if self.route is not None:
@@ -140,9 +141,13 @@ class BaseEnv(gym.Env):
             self.sumo_cmd += ['-c', self.net]
         self.sumo_cmd += ['--random', '--time-to-teleport', '-1', '--tripinfo-output',
                           os.path.join(self.log_dir, self.connection_name, 'tripinfo_' + str(self.run) + '.xml'),
+                          '--personinfo-output',
+                          os.path.join(self.log_dir, self.connection_name, 'personinfo_' + str(self.run) + '.xml'),
                           '--tripinfo-output.write-unfinished',
                           '--no-step-log', 'True',
                           '--no-warnings', 'True']
+        if self.force_jupedsim:
+            self.sumo_cmd += ['--pedestrian.model', 'jupedsim']
         if self.libsumo:
             traci.start(self.sumo_cmd)
             self.sumo = traci

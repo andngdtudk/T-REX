@@ -168,4 +168,37 @@ map_configs = {
         'end_time': 3600,
         'warmup': 0
     },
+    'kbh_full': {
+        'lights': [],
+        'net': 'environments/kbh_full/kbh_4.0.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_full_multimodal': {
+        'lights': [],
+        'net': 'environments/kbh_full_multimodal/kbh_4.0.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_full_multimodal_mod': {
+        'lights': [],
+        'net': 'environments/kbh_full_multimodal_mod/kbh_4.0.1.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    }
 }

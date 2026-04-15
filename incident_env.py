@@ -43,6 +43,7 @@ class IncidentEnv(gym.Env):
         self.signal_ids = []
 
         self.connection_name = f"{run_name}-{map_name}-{state_fn.__name__}-{reward_fn.__name__}"
+        self.force_jupedsim = map_name in {'kbh_full_multimodal', 'kbh_full_multimodal_mod'}
         self.additional = self._find_additional_file()
         self.scenario_folder = self._find_scenario_folder()
 
@@ -78,20 +79,26 @@ class IncidentEnv(gym.Env):
 
     def _build_sumo_command(self):
         if self.route:
-            return [
+            cmd = [
                 sumolib.checkBinary('sumo'),
                 '-n', self.net,
                 '-r', os.path.join(self.route, f"{self.map_name}_1.rou.xml"),
                 '-a', os.path.join(self.route, "vtypes.add.xml"),
                 '--no-warnings', 'True'
             ]
+            if self.force_jupedsim:
+                cmd += ['--pedestrian.model', 'jupedsim']
+            return cmd
         else:
-            return [
+            cmd = [
                 sumolib.checkBinary('sumo'),
                 '-c', self.net,
                 '-a', self.additional,
                 '--no-warnings', 'True'
             ]
+            if self.force_jupedsim:
+                cmd += ['--pedestrian.model', 'jupedsim']
+            return cmd
 
     def _initialize_sumo(self):
         sumo_cmd = self._build_sumo_command()
@@ -205,10 +212,13 @@ class IncidentEnv(gym.Env):
             '--random',
             '--time-to-teleport', '-1',
             '--tripinfo-output', os.path.join(self.log_dir, self.connection_name, f'tripinfo_{self.run}.xml'),
+            '--personinfo-output', os.path.join(self.log_dir, self.connection_name, f'personinfo_{self.run}.xml'),
             '--tripinfo-output.write-unfinished',
             '--no-step-log', 'True',
             '--no-warnings', 'True'
         ]
+        if self.force_jupedsim:
+            self.sumo_cmd += ['--pedestrian.model', 'jupedsim']
 
         # Restart SUMO
         if self.libsumo:
