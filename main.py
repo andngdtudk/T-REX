@@ -179,12 +179,14 @@ def run_trial(args, trial):
             alg(agt_config, obs_act, args.map, trial)
 
     # === Training or Testing ===
-    if args.strategy == 1:
-        run_base_scenario(env, agent, args, agt_config)
-    else:
-        run_incident_scenario(env, agent, args, agt_config, alg)
-
-    env.close()
+    try:
+        if args.strategy == 1:
+            run_base_scenario(env, agent, args, agt_config)
+        else:
+            run_incident_scenario(env, agent, args, agt_config, alg)
+    finally:
+        env.close()
+        print(f"Trial {trial} completed for {args.agent} on {args.map}.", flush=True)
 
 
 # === Helper Functions ===
@@ -192,12 +194,24 @@ def run_trial(args, trial):
 def run_base_scenario(env, agent, args, agt_config):
     if agt_config['load']:
         print('Testing under base condition...')
-        for _ in range(args.seps, args.eps):
-            run_episode(env, agent)
+        for ep in range(args.seps, args.eps):
+            print(f"Episode {ep + 1}/{args.eps} started (base test).", flush=True)
+            stats = run_episode(env, agent)
+            print(
+                f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
+                f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
+                flush=True,
+            )
     else:
         print('Training under base condition...')
-        for _ in range(args.eps):
-            run_episode(env, agent)
+        for ep in range(args.eps):
+            print(f"Episode {ep + 1}/{args.eps} started (base train).", flush=True)
+            stats = run_episode(env, agent)
+            print(
+                f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
+                f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
+                flush=True,
+            )
 
 
 def run_incident_scenario(env, agent, args, agt_config, alg):
@@ -213,14 +227,26 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
             last_seeds_ic2 = load_seeds(seed_file_2, args.repeat)
             print(f"Loaded seeds from files: {list(last_seeds_ic1)}, {list(last_seeds_ic2)}")
 
-            for _ in range(args.seps, args.eps):
+            for ep in range(args.seps, args.eps):
                 seed_ic1, seed_ic2 = last_seeds_ic1.popleft(), last_seeds_ic2.popleft()
                 obs = env.reset(pre_seed=[seed_ic1, seed_ic2])
-                run_episode(env, agent, obs)
+                print(f"Episode {ep + 1}/{args.eps} started (incident test, seeded).", flush=True)
+                stats = run_episode(env, agent, obs)
+                print(
+                    f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
+                    f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
+                    flush=True,
+                )
         else:
             print('Testing without predefined incident seeds...')
-            for _ in range(args.seps, args.eps):
-                run_episode(env, agent)
+            for ep in range(args.seps, args.eps):
+                print(f"Episode {ep + 1}/{args.eps} started (incident test).", flush=True)
+                stats = run_episode(env, agent)
+                print(
+                    f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
+                    f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
+                    flush=True,
+                )
     else:
         print('Training under incident condition...')
         if args.repeat > 0:
@@ -233,24 +259,68 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
                 if ep >= args.eps - args.repeat:
                     last_seed_ic1.append(env.seed_ic1)
                     last_seed_ic2.append(env.seed_ic2)
-                run_episode(env, agent, obs)
+                print(f"Episode {ep + 1}/{args.eps} started (incident train, seed capture).", flush=True)
+                stats = run_episode(env, agent, obs)
+                print(
+                    f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
+                    f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
+                    flush=True,
+                )
 
             save_seeds(seed_file_1, last_seed_ic1)
             save_seeds(seed_file_2, last_seed_ic2)
         else:
             print('Training without saving incident seeds...')
-            for _ in range(args.eps):
-                run_episode(env, agent)
+            for ep in range(args.eps):
+                print(f"Episode {ep + 1}/{args.eps} started (incident train).", flush=True)
+                stats = run_episode(env, agent)
+                print(
+                    f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
+                    f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
+                    flush=True,
+                )
 
 
 def run_episode(env, agent, obs=None):
+    debug_episode = os.getenv('TREX_DEBUG_EPISODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     if obs is None:
         obs = env.reset()
     done = False
+    decisions = 0
     while not done:
+        if debug_episode:
+            print(f"  debug: decision {decisions + 1} -> act", flush=True)
         act = agent.act(obs)
+        safe_act = {}
+        for signal_id in getattr(env, 'signal_ids', []):
+            selected = act.get(signal_id, 0)
+            num_phases = len(env.phases.get(signal_id, []))
+            if num_phases <= 0:
+                safe_selected = 0
+            else:
+                safe_selected = int(selected) % num_phases
+            safe_act[signal_id] = safe_selected
+        act = safe_act
+        if debug_episode:
+            print(f"  debug: decision {decisions + 1} actions={act}", flush=True)
+            print(f"  debug: decision {decisions + 1} -> step", flush=True)
         obs, rew, done, info = env.step(act)
+        if debug_episode:
+            print(f"  debug: decision {decisions + 1} -> observe", flush=True)
         agent.observe(obs, rew, done, info)
+        decisions += 1
+        if decisions % 100 == 0:
+            print(
+                f"  progress: decisions={decisions}, sim_time={env.sumo.simulation.getTime():.1f}",
+                flush=True,
+            )
+
+    sim_time = env.sumo.simulation.getTime() if hasattr(env, 'sumo') else -1
+    return {
+        'decisions': decisions,
+        'sim_time': sim_time,
+        'done': done,
+    }
 
 
 def load_seeds(filename, max_len):

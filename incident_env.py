@@ -43,7 +43,7 @@ class IncidentEnv(gym.Env):
         self.signal_ids = []
 
         self.connection_name = f"{run_name}-{map_name}-{state_fn.__name__}-{reward_fn.__name__}"
-        self.force_jupedsim = map_name in {'kbh_full_multimodal', 'kbh_full_multimodal_mod'}
+        self.force_jupedsim = map_name in {'kbh_full_multimodal_mod'}
         self.additional = self._find_additional_file()
         self.scenario_folder = self._find_scenario_folder()
 

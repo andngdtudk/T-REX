@@ -31,7 +31,7 @@ class BaseEnv(gym.Env):
         self.step_ratio = step_ratio
         self.connection_name = run_name + '-' + map_name + '---' + state_fn.__name__ + '-' + reward_fn.__name__
         self.map_name = map_name
-        self.force_jupedsim = map_name in {'kbh_full_multimodal', 'kbh_full_multimodal_mod'}
+        self.force_jupedsim = map_name in {'kbh_full_multimodal_mod'}
 
         # Run some steps in the simulation with default light configurations to detect phases
         if self.route is not None:

@@ -1,3 +1,4 @@
+import os
 import traci
 import copy
 from pathlib import Path
@@ -181,14 +182,22 @@ class Signal:
 
         self.waiting_times = dict()     # SUMO's WaitingTime and AccumulatedWaiting are both wrong for multiple signals
 
-        self.phases, self.yellow_dict = create_yellows(phases, yellow_length)
+        # Libsumo can become unstable when program logic is rewritten repeatedly
+        # across resets. Keep native programs under libsumo and apply direct phase
+        # switches only; preserve legacy yellow-program behavior for traci.
+        use_libsumo_as_traci = bool(os.environ.get('LIBSUMO_AS_TRACI'))
+        if use_libsumo_as_traci:
+            self.phases = phases
+            self.yellow_dict = {}
+        else:
+            self.phases, self.yellow_dict = create_yellows(phases, yellow_length)
 
-        # logic = self.sumo.trafficlight.Logic(id, 0, 0, phases=self.phases) # not compatible with libsumo
-        programs = self.sumo.trafficlight.getAllProgramLogics(self.id)
-        logic = programs[0]
-        logic.type = 0
-        logic.phases = self.phases
-        self.sumo.trafficlight.setProgramLogic(self.id, logic)
+            # logic = self.sumo.trafficlight.Logic(id, 0, 0, phases=self.phases) # not compatible with libsumo
+            programs = self.sumo.trafficlight.getAllProgramLogics(self.id)
+            logic = programs[0]
+            logic.type = 0
+            logic.phases = self.phases
+            self.sumo.trafficlight.setProgramLogic(self.id, logic)
 
         self.signals = None     # Used to allow signal sharing
         self.full_observation = None
