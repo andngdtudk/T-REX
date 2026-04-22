@@ -8,6 +8,12 @@ import sumolib
 import gym
 import traceback
 from traffic_signal import Signal, ensure_map_signal_control_config, export_map_signal_config
+from simulation_summary import (
+    initialize_runtime_counters,
+    update_runtime_counters,
+    finalize_runtime_state,
+    print_grouped_mode_summary,
+)
 
 class BaseEnv(gym.Env):
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False, end_time=3600,
@@ -41,9 +47,9 @@ class BaseEnv(gym.Env):
 
         # Run some steps in the simulation with default light configurations to detect phases
         if self.route is not None:
-            sumo_cmd = [sumolib.checkBinary('sumo'), '-n', net, '-r', self.route + '_1.rou.xml', '--no-warnings', 'True']
+            sumo_cmd = [sumolib.checkBinary('sumo'), '-n', net, '-r', self.route + '_1.rou.xml', '--no-warnings', 'True', '--duration-log.statistics', 'False']
         else:
-            sumo_cmd = [sumolib.checkBinary('sumo'), '-c', net, '--no-warnings', 'True']
+            sumo_cmd = [sumolib.checkBinary('sumo'), '-c', net, '--no-warnings', 'True', '--duration-log.statistics', 'False']
         if self.libsumo:
             traci.start(sumo_cmd)
             self.sumo = traci
@@ -111,6 +117,7 @@ class BaseEnv(gym.Env):
         self.run = run
         self.metrics = []
         self.wait_metric = dict()
+        self.summary_counters = initialize_runtime_counters()
 
         if not self.libsumo: traci.switch(self.connection_name)
         traci.close()
@@ -124,11 +131,14 @@ class BaseEnv(gym.Env):
         # The monaco scenario expects .25s steps instead of 1s, account for that here.
         for _ in range(self.step_ratio):
             self.sumo.simulationStep()
+            update_runtime_counters(self.sumo, self.summary_counters)
         
     def reset(self):
         if self.run != 0:
             if not self.libsumo: traci.switch(self.connection_name)
+            self._finalize_current_run_summary()
             traci.close()
+            print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
             self.save_metrics()
         self.metrics = []
 
@@ -150,6 +160,7 @@ class BaseEnv(gym.Env):
                           '--personinfo-output',
                           os.path.join(self.log_dir, self.connection_name, 'personinfo_' + str(self.run) + '.xml'),
                           '--tripinfo-output.write-unfinished',
+                          '--duration-log.statistics', 'False',
                           '--no-step-log', 'True',
                           '--no-warnings', 'True']
         if self.force_jupedsim:
@@ -160,6 +171,7 @@ class BaseEnv(gym.Env):
         else:
             traci.start(self.sumo_cmd, label=self.connection_name)
             self.sumo = traci.getConnection(self.connection_name)
+        self.summary_counters = initialize_runtime_counters()
 
         for _ in range(self.warmup):
             self.step_sim()
@@ -260,7 +272,17 @@ class BaseEnv(gym.Env):
     def render(self, mode='human'):
         pass
 
+    def _finalize_current_run_summary(self):
+        if self.run <= 0:
+            return
+        try:
+            finalize_runtime_state(self.sumo, self.summary_counters)
+        except Exception as exc:
+            print(f'Could not finalize grouped mode summary state: {exc}')
+
     def close(self):
         if not self.libsumo: traci.switch(self.connection_name)
+        self._finalize_current_run_summary()
         traci.close()
+        print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
         self.save_metrics()

@@ -5,6 +5,12 @@ import traci
 import sumolib
 from traffic_signal import Signal
 from T_REX import Initializer, Deployment
+from simulation_summary import (
+    initialize_runtime_counters,
+    update_runtime_counters,
+    finalize_runtime_state,
+    print_grouped_mode_summary,
+)
 
 
 class IncidentEnv(gym.Env):
@@ -39,6 +45,7 @@ class IncidentEnv(gym.Env):
         self.step_ratio = step_ratio
         self.metrics = []
         self.wait_metric = {}
+        self.summary_counters = initialize_runtime_counters()
         self.sumo_cmd = None
         self.signal_ids = []
 
@@ -84,7 +91,8 @@ class IncidentEnv(gym.Env):
                 '-n', self.net,
                 '-r', os.path.join(self.route, f"{self.map_name}_1.rou.xml"),
                 '-a', os.path.join(self.route, "vtypes.add.xml"),
-                '--no-warnings', 'True'
+                '--no-warnings', 'True',
+                '--duration-log.statistics', 'False'
             ]
             if self.force_jupedsim:
                 cmd += ['--pedestrian.model', 'jupedsim']
@@ -94,7 +102,8 @@ class IncidentEnv(gym.Env):
                 sumolib.checkBinary('sumo'),
                 '-c', self.net,
                 '-a', self.additional,
-                '--no-warnings', 'True'
+                '--no-warnings', 'True',
+                '--duration-log.statistics', 'False'
             ]
             if self.force_jupedsim:
                 cmd += ['--pedestrian.model', 'jupedsim']
@@ -180,6 +189,7 @@ class IncidentEnv(gym.Env):
                 if incident_info.is_incident:
                     incident.sim_incident(self.sim_step, reroute=True)
             self.sumo.simulationStep()
+            update_runtime_counters(self.sumo, self.summary_counters)
             self.sim_step += 1
             self.sim_time += 1
 
@@ -191,7 +201,9 @@ class IncidentEnv(gym.Env):
         if self.run != 0:
             if not self.libsumo:
                 traci.switch(self.connection_name)
+            self._finalize_current_run_summary()
             traci.close()
+            print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
             self.save_metrics()
 
         self.metrics.clear()
@@ -214,6 +226,7 @@ class IncidentEnv(gym.Env):
             '--tripinfo-output', os.path.join(self.log_dir, self.connection_name, f'tripinfo_{self.run}.xml'),
             '--personinfo-output', os.path.join(self.log_dir, self.connection_name, f'personinfo_{self.run}.xml'),
             '--tripinfo-output.write-unfinished',
+            '--duration-log.statistics', 'False',
             '--no-step-log', 'True',
             '--no-warnings', 'True'
         ]
@@ -227,6 +240,7 @@ class IncidentEnv(gym.Env):
         else:
             traci.start(self.sumo_cmd, label=self.connection_name)
             self.sumo = traci.getConnection(self.connection_name)
+        self.summary_counters = initialize_runtime_counters()
 
         # Reinitialize incidents
         self._initialize_incidents(pre_seed)
@@ -358,9 +372,19 @@ class IncidentEnv(gym.Env):
         """Render the environment (not implemented)."""
         pass
 
+    def _finalize_current_run_summary(self):
+        if self.run <= 0:
+            return
+        try:
+            finalize_runtime_state(self.sumo, self.summary_counters)
+        except Exception as exc:
+            print(f"Could not finalize grouped mode summary state: {exc}")
+
     def close(self):
         """Properly close SUMO simulation."""
         if not self.libsumo:
             traci.switch(self.connection_name)
+        self._finalize_current_run_summary()
         traci.close()
+        print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
         self.save_metrics()
