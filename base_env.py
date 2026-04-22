@@ -6,6 +6,7 @@ import numpy as np
 import traci
 import sumolib
 import gym
+import traceback
 from traffic_signal import Signal, ensure_map_signal_control_config, export_map_signal_config
 
 class BaseEnv(gym.Env):
@@ -31,7 +32,12 @@ class BaseEnv(gym.Env):
         self.step_ratio = step_ratio
         self.connection_name = run_name + '-' + map_name + '---' + state_fn.__name__ + '-' + reward_fn.__name__
         self.map_name = map_name
-        self.force_jupedsim = map_name in {'kbh_full_multimodal_mod'}
+        try:
+            self.force_jupedsim = "kbh" in str(map_name)   # Force jupedsim for kbh maps
+        except:
+            self.force_jupedsim = False
+            print("Error checking map name for jupedsim, defaulting to no forced jupedsim. Error was:")
+            traceback.print_exc()
 
         # Run some steps in the simulation with default light configurations to detect phases
         if self.route is not None:

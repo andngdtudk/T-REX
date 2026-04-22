@@ -200,5 +200,26 @@ map_configs = {
         'start_time': 0,
         'end_time': 3600,
         'warmup': 0
+    },'kbh_red_420': {
+        'lights': [],
+        'net': 'environments/kbh_red_420/kbh_red_4.2.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_421': {
+        'lights': [],
+        'net': 'environments/kbh_421/kbh_4.2.1.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
     }
 }
