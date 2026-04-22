@@ -1,0 +1,42 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<data>
+    <interval id="compass_car_weights" begin="0" end="3600">
+        <edge id="-1248122869#2" traveltime="3.037" compassSpeed="10.270" />
+        <edge id="-234470016#1" traveltime="32.046" compassSpeed="4.231" />
+        <edge id="-234571649#0" traveltime="4.254" compassSpeed="10.229" />
+        <edge id="-27360355.63" traveltime="15.457" compassSpeed="7.109" />
+        <edge id="-E13" traveltime="28.841" compassSpeed="3.806" />
+        <edge id="1124217846#1" traveltime="3.683" compassSpeed="1.718" />
+        <edge id="1163086345#0" traveltime="20.364" compassSpeed="1.284" />
+        <edge id="1248122869#2" traveltime="14.585" compassSpeed="2.142" />
+        <edge id="1248122870#1" traveltime="7.023" compassSpeed="0.805" />
+        <edge id="1265224597" traveltime="35.473" compassSpeed="2.294" />
+        <edge id="127998250#0" traveltime="7.373" compassSpeed="9.284" />
+        <edge id="127998250#1" traveltime="2.274" compassSpeed="9.583" />
+        <edge id="128007872" traveltime="41.243" compassSpeed="0.801" />
+        <edge id="128007876#2" traveltime="13.998" compassSpeed="5.948" />
+        <edge id="229881046#0" traveltime="7.737" compassSpeed="0.470" />
+        <edge id="234470016#0" traveltime="50.303" compassSpeed="2.682" />
+        <edge id="234571649#0" traveltime="29.593" compassSpeed="1.470" />
+        <edge id="234577460#1" traveltime="37.324" compassSpeed="3.251" />
+        <edge id="234577460#2" traveltime="22.208" compassSpeed="3.557" />
+        <edge id="262659497#0" traveltime="53.387" compassSpeed="1.947" />
+        <edge id="363647271#2" traveltime="24.167" compassSpeed="0.793" />
+        <edge id="497262589#1" traveltime="26.393" compassSpeed="1.396" />
+        <edge id="497262589#2" traveltime="39.521" compassSpeed="2.762" />
+        <edge id="497264739#0" traveltime="35.679" compassSpeed="0.710" />
+        <edge id="497264742#1" traveltime="46.246" compassSpeed="1.755" />
+        <edge id="506789224#1" traveltime="4.483" compassSpeed="5.613" />
+        <edge id="8121740#0.82" traveltime="31.476" compassSpeed="2.892" />
+        <edge id="87325166#0" traveltime="39.005" compassSpeed="0.534" />
+        <edge id="E16" traveltime="94.442" compassSpeed="1.348" />
+        <edge id="E51" traveltime="26.235" compassSpeed="0.601" />
+        <edge id="E52" traveltime="18.889" compassSpeed="0.606" />
+        <edge id="E53" traveltime="4.884" compassSpeed="4.400" />
+        <edge id="E53.25" traveltime="4.481" compassSpeed="8.280" />
+        <edge id="E53.67" traveltime="4.658" compassSpeed="7.322" />
+        <edge id="E54" traveltime="49.095" compassSpeed="0.732" />
+        <edge id="E55" traveltime="16.325" compassSpeed="0.754" />
+        <edge id="E57" traveltime="24.702" compassSpeed="3.279" />
+    </interval>
+</data>
