@@ -4,6 +4,21 @@ from TREX_comp.config.mdp_config import mdp_configs
 
 
 def _resolve_fma_config(config_key, signals):
+    """Resolve and cache FMA-style hierarchical reward configuration.
+
+    The function normalizes missing config fields (management groups,
+    manager-neighbor relations, and worker-to-manager assignments) and writes
+    the resolved result back into ``mdp_configs[config_key]`` so downstream
+    reward calls can rely on a complete structure.
+
+    Args:
+        config_key: Key in ``mdp_configs`` (for example ``'FMA2C'``).
+        signals: Mapping of signal_id to traffic-signal objects.
+
+    Returns:
+        A fully populated config dictionary with scalar coefficients and
+        hierarchy mappings.
+    """
     config = mdp_configs.get(config_key, {})
 
     # If config is not map-resolved yet or map has no hand-written entry,
@@ -54,6 +69,15 @@ def _resolve_fma_config(config_key, signals):
 
 
 def wait(signals):
+    """Local delay-minimization reward based on total waiting time.
+
+    For each signal, this returns the negative sum of ``total_wait`` over its
+    inbound lanes. It is unnormalized, so magnitude grows with demand/network
+    size.
+
+    Typical usage:
+        Used by ``STOCHASTIC``, ``MAXWAVE``, and ``MAXPRESSURE``.
+    """
     rewards = dict()
     for signal_id in signals:
         total_wait = 0
@@ -65,6 +89,15 @@ def wait(signals):
 
 
 def wait_norm(signals):
+    """Normalized and clipped variant of :func:`wait`.
+
+    Uses the same ``-total_wait`` objective, but scales by 224 and clips to
+    ``[-4, 4]`` to stabilize optimization when reward magnitudes vary widely
+    across episodes or maps.
+
+    Typical usage:
+        Used by ``IDQN`` and ``IPPO``.
+    """
     rewards = dict()
     for signal_id in signals:
         total_wait = 0
@@ -76,6 +109,16 @@ def wait_norm(signals):
 
 
 def pressure(signals):
+    """Traffic-pressure reward using upstream minus downstream queue.
+
+    Computes queue pressure per signal as:
+    inbound queue - reachable downstream outbound queue, then returns its
+    negative. This encourages serving movements with larger local pressure
+    imbalances rather than only minimizing absolute wait.
+
+    Typical usage:
+        Used by ``MPLight``, ``MPLightFULL``, and ``MPLightVAL``.
+    """
     rewards = dict()
     for signal_id in signals:
         queue_length = 0
@@ -92,6 +135,17 @@ def pressure(signals):
 
 
 def queue_maxwait(signals):
+    """MA2C local reward combining queue length and max waiting penalty.
+
+    Per signal reward is the negative weighted sum of lane queue and lane
+    maximum waiting time:
+    ``-(queue + coef * max_wait)``, where ``coef`` comes from
+    ``mdp_configs['MA2C']['coef']``.
+
+    Typical usage:
+        MA2C-style worker reward component; not directly selected by any
+        current ``--agent`` option in this repository.
+    """
     rewards = dict()
     for signal_id in signals:
         signal = signals[signal_id]
@@ -104,6 +158,15 @@ def queue_maxwait(signals):
 
 
 def queue_maxwait_neighborhood(signals):
+    """MA2C cooperative reward with downstream neighborhood shaping.
+
+    Starts from :func:`queue_maxwait` and adds discounted rewards of immediate
+    downstream neighbors using ``mdp_configs['MA2C']['coop_gamma']``.
+
+    Typical usage:
+        MA2C-style cooperative worker reward; not directly selected by any
+        current ``--agent`` option in this repository.
+    """
     rewards = queue_maxwait(signals)
     neighborhood_rewards = dict()
     for signal_id in signals:
@@ -120,6 +183,19 @@ def queue_maxwait_neighborhood(signals):
 
 
 def fma2c(signals):
+    """Hierarchical FMA2C reward for workers and managers.
+
+    Produces a joint reward dictionary that includes:
+    1) Worker (signal) rewards: local queue/max-wait penalties plus
+       intra-region neighbor shaping via ``alpha``.
+    2) Manager rewards: region-level terms based on fringe arrivals and
+       liquidity (departures - arrivals), with inter-manager coupling.
+
+    This variant reads coefficients from ``mdp_configs['FMA2C']``.
+
+    Typical usage:
+        Used by ``FMA2C`` and ``FMA2CVAL``.
+    """
     fma2c_config = _resolve_fma_config('FMA2C', signals)
     management = fma2c_config['management']
     supervisors = fma2c_config['supervisors']   # reverse of management
@@ -187,6 +263,15 @@ def fma2c(signals):
 
 
 def fma2c_full(signals):
+    """Full hierarchical reward variant for FMA2CFull experiments.
+
+    Same reward structure as :func:`fma2c` (worker + manager terms), but with
+    parameters sourced from ``mdp_configs['FMA2CFull']``. This allows running a
+    separate experimental configuration without changing reward logic.
+
+    Typical usage:
+        Used by ``FMA2CFull``.
+    """
     fma2c_config = _resolve_fma_config('FMA2CFull', signals)
     management = fma2c_config['management']
     supervisors = fma2c_config['supervisors']   # reverse of management

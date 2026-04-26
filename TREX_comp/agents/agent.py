@@ -5,8 +5,10 @@ class Agent(object):
     def __init__(self):
         if torch.cuda.is_available():
             device = "cuda:0"
+            print("Using GPU: {}".format(torch.cuda.get_device_name(0)))
         else:
             device = "cpu"
+            print("Using CPU")
         self.device = torch.device(device)
 
     def act(self, observation):
