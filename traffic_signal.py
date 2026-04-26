@@ -344,12 +344,28 @@ class Signal:
     def set_phase(self):
         self.sumo.trafficlight.setPhase(self.id, int(self.next_phase))
 
+    def _is_bike_vehicle(self, vehicle_id, vehicle_type):
+        vehicle_class = self.sumo.vehicle.getVehicleClass(vehicle_id)
+        if vehicle_class == 'bicycle':
+            return True
+
+        lowered_type = vehicle_type.lower()
+        return 'bike' in lowered_type or 'bicycle' in lowered_type or 'cycle' in lowered_type
+
     def observe(self, step_length, distance):
         full_observation = dict()
         all_vehicles = set()
         for lane in self.lanes:
             vehicles = []
-            lane_measures = {'queue': 0, 'approach': 0, 'total_wait': 0, 'max_wait': 0}
+            lane_measures = {
+                'queue': 0,
+                'approach': 0,
+                'total_wait': 0,
+                'max_wait': 0,
+                'bike_queue': 0,
+                'bike_total_wait': 0,
+                'bike_max_wait': 0,
+            }
             lane_vehicles = self.get_vehicles(lane, distance)
             for vehicle in lane_vehicles:
                 all_vehicles.add(vehicle)
@@ -366,12 +382,19 @@ class Signal:
                 vehicle_measures['acceleration'] = self.sumo.vehicle.getAcceleration(vehicle)
                 vehicle_measures['position'] = self.sumo.vehicle.getLanePosition(vehicle)
                 vehicle_measures['type'] = self.sumo.vehicle.getTypeID(vehicle)
+                vehicle_measures['is_bike'] = self._is_bike_vehicle(vehicle, vehicle_measures['type'])
                 vehicles.append(vehicle_measures)
                 if vehicle_measures['wait'] > 0:
                     lane_measures['total_wait'] = lane_measures['total_wait'] + vehicle_measures['wait']
                     lane_measures['queue'] = lane_measures['queue'] + 1
                     if vehicle_measures['wait'] > lane_measures['max_wait']:
                         lane_measures['max_wait'] = vehicle_measures['wait']
+
+                    if vehicle_measures['is_bike']:
+                        lane_measures['bike_total_wait'] = lane_measures['bike_total_wait'] + vehicle_measures['wait']
+                        lane_measures['bike_queue'] = lane_measures['bike_queue'] + 1
+                        if vehicle_measures['wait'] > lane_measures['bike_max_wait']:
+                            lane_measures['bike_max_wait'] = vehicle_measures['wait']
                 else:
                     lane_measures['approach'] = lane_measures['approach'] + 1
             lane_measures['vehicles'] = vehicles
