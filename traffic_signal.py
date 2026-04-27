@@ -352,9 +352,84 @@ class Signal:
         lowered_type = vehicle_type.lower()
         return 'bike' in lowered_type or 'bicycle' in lowered_type or 'cycle' in lowered_type
 
+    def _get_controlled_edges(self):
+        """Get the set of edges controlled by this signal so we can use them for pedestrian detection."""
+        controlled_edges = set()
+        links = self.sumo.trafficlight.getControlledLinks(self.id)
+        for link_group in links:
+            if len(link_group) == 0:
+                continue
+            for link in link_group:
+                if len(link) < 2:
+                    continue
+                in_lane = link[0]
+                out_lane = link[1]
+                for lane_id in (in_lane, out_lane):
+                    if lane_id is None or lane_id == '':
+                        continue
+                    try:
+                        controlled_edges.add(self.sumo.lane.getEdgeID(lane_id))
+                    except Exception as e:
+                        print ("Error getting edge for lane {}: {}".format(lane_id, str(e)))
+                        raise e
+        return controlled_edges
+
+    def _collect_pedestrian_measures(self, controlled_edges):
+        """Collect pedestrian-related measures for the given set of controlled edges."""
+        person_ids = set()
+        for edge_id in controlled_edges:
+            try:
+                edge_person_ids = self.sumo.edge.getLastStepPersonIDs(edge_id)
+            except Exception as e:
+                print ("Error getting person IDs for edge {}: {}".format(edge_id, str(e)))
+                raise e
+            
+            for person_id in edge_person_ids:
+                person_ids.add(person_id)
+
+        ped_waiting = 0
+        ped_total_wait = 0.0
+        ped_max_wait = 0.0
+        ped_approaching_crossing = 0
+        ped_leaving_intersection = 0
+
+        for person_id in person_ids:
+            try:
+                waiting_time = self.sumo.person.getWaitingTime(person_id)
+            except Exception as e:
+                print ("Error getting waiting time for person {}: {}".format(person_id, str(e)))
+                waiting_time = 0.0
+
+            if waiting_time > 0:
+                ped_waiting += 1
+                ped_total_wait += waiting_time
+                if waiting_time > ped_max_wait:
+                    ped_max_wait = waiting_time
+
+            try:
+                next_edge = self.sumo.person.getNextEdge(person_id)
+            except Exception:
+                next_edge = None
+
+            if next_edge in controlled_edges:
+                ped_approaching_crossing += 1
+            else:
+                ped_leaving_intersection += 1
+
+        return {
+            'ped_ids': person_ids,
+            'ped_count': len(person_ids),
+            'ped_waiting': ped_waiting,
+            'ped_total_wait': ped_total_wait,
+            'ped_max_wait': ped_max_wait,
+            'ped_approaching_crossing': ped_approaching_crossing,
+            'ped_leaving_intersection': ped_leaving_intersection,
+        }
+
     def observe(self, step_length, distance):
         full_observation = dict()
         all_vehicles = set()
+        controlled_edges = self._get_controlled_edges()
         for lane in self.lanes:
             vehicles = []
             lane_measures = {
@@ -399,6 +474,9 @@ class Signal:
                     lane_measures['approach'] = lane_measures['approach'] + 1
             lane_measures['vehicles'] = vehicles
             full_observation[lane] = lane_measures
+        
+        # Collect pedestrian measures now, as these are not lane based
+        full_observation.update(self._collect_pedestrian_measures(controlled_edges))
 
         full_observation['num_vehicles'] = all_vehicles
         if self.last_step_vehicles is None:
