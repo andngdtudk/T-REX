@@ -399,5 +399,14 @@ mdp_configs = {
                 'top_mgr': []
             }
         },
+    },
+    'IDQN_MULTIMODAL': {
+        'kbh_red_420': {
+            'car_wait_weight': 1.0,
+            'bike_wait_weight': 1.0,
+            'ped_wait_weight': 1.0,
+            'norm_wait': 224.0,
+            'clip_wait': 4.0,
+        }
     }
 }

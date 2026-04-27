@@ -92,6 +92,20 @@ agent_configs = {
         'EPS_DECAY': 220,
         'TARGET_UPDATE': 500
     },
+
+    "IDQN_MULTIMODAL": {
+        'agent': IDQN,
+        'state': states.drq_norm,
+        'reward': rewards.wait_norm,
+        'max_distance': 200,
+        'BATCH_SIZE': 32,
+        'GAMMA': 0.99,
+        'EPS_START': 1.0,
+        'EPS_END': 0.0,
+        'EPS_DECAY': 220,
+        'TARGET_UPDATE': 500
+    },
+
     'IPPO': {
         'agent': IPPO,
         'state': states.drq_norm,

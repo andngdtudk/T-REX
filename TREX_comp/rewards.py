@@ -2,6 +2,204 @@ import numpy as np
 
 from TREX_comp.config.mdp_config import mdp_configs
 
+#region Waits
+
+def wait(signals):
+    """Local delay-minimization reward based on total waiting time.
+
+    For each signal, this returns the negative sum of ``total_wait`` over its
+    inbound lanes. It is unnormalized, so magnitude grows with demand/network
+    size.
+
+    Used by ``STOCHASTIC``, ``MAXWAVE``, and ``MAXPRESSURE``.
+    """
+    rewards = dict()
+    for signal_id in signals:
+        total_wait = 0
+        for lane in signals[signal_id].lanes:
+            total_wait += signals[signal_id].full_observation[lane]['total_wait']
+
+        rewards[signal_id] = -total_wait
+    return rewards
+
+
+def wait_norm(signals):
+    """Normalized and clipped variant of :func:`wait`.
+
+    Uses the same ``-total_wait`` objective, but scales by 224 and clips to
+    ``[-4, 4]`` to stabilize optimization when reward magnitudes vary widely
+    across episodes or maps.
+
+    Used by ``IDQN`` and ``IPPO``.
+    """
+    rewards = dict()
+    for signal_id in signals:
+        total_wait = 0
+        for lane in signals[signal_id].lanes:
+            total_wait += signals[signal_id].full_observation[lane]['total_wait']
+
+        rewards[signal_id] = np.clip(-total_wait/224, -4, 4).astype(np.float32)
+    return rewards
+
+#endregion
+#============================================================================================
+#region Wait multimodal
+
+def _resolve_multimodal_wait_config():
+    """Resolve config for multimodal waiting-time rewards.
+
+    The function first checks ``mdp_configs['IDQN_MULTIMODAL']`` and falls back
+    to ``mdp_configs['IDQN']`` if available. If neither provides scalar values,
+    hard-coded defaults are used.
+    """
+    defaults = {
+        'car_wait_weight': 1.0,
+        'bike_wait_weight': 1.0,
+        'ped_wait_weight': 1.0,
+        'norm_wait': 224.0,
+        'clip_wait': 4.0,
+    }
+
+    # Runtime map resolution in main.py typically overwrites mdp_configs[key]
+    # with a scalar config dict; if that is not available, use defaults.
+    for key in ('IDQN_MULTIMODAL', 'IDQN'):
+        raw = mdp_configs.get(key)
+        if not isinstance(raw, dict):
+            continue
+
+        if all(name in raw for name in ('car_wait_weight', 'bike_wait_weight', 'ped_wait_weight')):
+            cfg = defaults.copy()
+            cfg.update(raw)
+            return cfg
+
+    return defaults
+
+def wait_multimodal_norm(signals):
+    """Weighted, normalized wait reward over cars, bikes, and pedestrians.
+
+    Per signal, this computes:
+        combined_wait =
+            car_wait_weight * car_wait
+            + bike_wait_weight * bike_wait
+            + ped_wait_weight * ped_wait
+
+    where:
+    - ``car_wait`` is lane ``total_wait - bike_total_wait`` (clipped at 0),
+    - ``bike_wait`` is lane ``bike_total_wait``,
+    - ``ped_wait`` is signal-level ``ped_total_wait``.
+
+    Reward is ``-combined_wait / norm_wait`` clipped to
+    ``[-clip_wait, clip_wait]``.
+
+    Config source:
+        ``mdp_configs['IDQN_MULTIMODAL']`` (preferred) or
+        ``mdp_configs['IDQN']`` (fallback).
+    """
+    cfg = _resolve_multimodal_wait_config()
+    rewards = dict()
+
+    for signal_id, signal in signals.items():
+        car_wait = 0.0
+        bike_wait = 0.0
+        for lane in signal.lanes:
+            lane_wait = float(signal.full_observation[lane].get('total_wait', 0.0))
+            lane_bike_wait = float(signal.full_observation[lane].get('bike_total_wait', 0.0))
+            bike_wait += lane_bike_wait
+            car_wait += max(0.0, lane_wait - lane_bike_wait)
+
+        ped_wait = float(signal.full_observation.get('ped_total_wait', 0.0))
+
+        combined_wait = (
+            cfg['car_wait_weight'] * car_wait
+            + cfg['bike_wait_weight'] * bike_wait
+            + cfg['ped_wait_weight'] * ped_wait
+        )
+
+        rewards[signal_id] = np.clip(
+            -combined_wait / cfg['norm_wait'],
+            -cfg['clip_wait'],
+            cfg['clip_wait'],
+        ).astype(np.float32)
+
+    return rewards
+
+#endregion
+#============================================================================================
+#region Pressure and queue
+
+def pressure(signals):
+    """Traffic-pressure reward using upstream minus downstream queue.
+
+    Computes queue pressure per signal as:
+    inbound queue - reachable downstream outbound queue, then returns its
+    negative. This encourages serving movements with larger local pressure
+    imbalances rather than only minimizing absolute wait.
+
+    Used by ``MPLight``, ``MPLightFULL``, and ``MPLightVAL``.
+    """
+    rewards = dict()
+    for signal_id in signals:
+        queue_length = 0
+        for lane in signals[signal_id].lanes:
+            queue_length += signals[signal_id].full_observation[lane]['queue']
+
+        for lane in signals[signal_id].outbound_lanes:
+            dwn_signal = signals[signal_id].out_lane_to_signalid[lane]
+            if dwn_signal in signals[signal_id].signals:
+                queue_length -= signals[signal_id].signals[dwn_signal].full_observation[lane]['queue']
+
+        rewards[signal_id] = -queue_length
+    return rewards
+
+
+def queue_maxwait(signals):
+    """MA2C local reward combining queue length and max waiting penalty.
+
+    Per signal reward is the negative weighted sum of lane queue and lane
+     maximum waiting time:
+     ``-(queue + coef * max_wait)``, where ``coef`` comes from
+     ``mdp_configs['MA2C']['coef']``.
+
+    MA2C-style worker reward component; not directly selected by any
+     current ``--agent`` option in this repository.
+    """
+    rewards = dict()
+    for signal_id in signals:
+        signal = signals[signal_id]
+        reward = 0
+        for lane in signal.lanes:
+            reward += signal.full_observation[lane]['queue']
+            reward += (signal.full_observation[lane]['max_wait'] * mdp_configs['MA2C']['coef'])
+        rewards[signal_id] = -reward
+    return rewards
+
+
+def queue_maxwait_neighborhood(signals):
+    """MA2C cooperative reward with downstream neighborhood shaping.
+
+    Starts from :func:`queue_maxwait` and adds discounted rewards of immediate
+     downstream neighbors using ``mdp_configs['MA2C']['coop_gamma']``.
+
+    MA2C-style cooperative worker reward; not directly selected by any
+     current ``--agent`` option in this repository.
+    """
+    rewards = queue_maxwait(signals)
+    neighborhood_rewards = dict()
+    for signal_id in signals:
+        signal = signals[signal_id]
+        sum_reward = rewards[signal_id]
+
+        for key in signal.downstream:
+            neighbor = signal.downstream[key]
+            if neighbor is not None:
+                sum_reward += (mdp_configs['MA2C']['coop_gamma'] * rewards[neighbor])
+        neighborhood_rewards[signal_id] = sum_reward
+
+    return neighborhood_rewards
+
+#endregion
+#============================================================================================
+#region FMAs
 
 def _resolve_fma_config(config_key, signals):
     """Resolve and cache FMA-style hierarchical reward configuration.
@@ -67,121 +265,6 @@ def _resolve_fma_config(config_key, signals):
     mdp_configs[config_key] = resolved
     return resolved
 
-
-def wait(signals):
-    """Local delay-minimization reward based on total waiting time.
-
-    For each signal, this returns the negative sum of ``total_wait`` over its
-    inbound lanes. It is unnormalized, so magnitude grows with demand/network
-    size.
-
-    Typical usage:
-        Used by ``STOCHASTIC``, ``MAXWAVE``, and ``MAXPRESSURE``.
-    """
-    rewards = dict()
-    for signal_id in signals:
-        total_wait = 0
-        for lane in signals[signal_id].lanes:
-            total_wait += signals[signal_id].full_observation[lane]['total_wait']
-
-        rewards[signal_id] = -total_wait
-    return rewards
-
-
-def wait_norm(signals):
-    """Normalized and clipped variant of :func:`wait`.
-
-    Uses the same ``-total_wait`` objective, but scales by 224 and clips to
-    ``[-4, 4]`` to stabilize optimization when reward magnitudes vary widely
-    across episodes or maps.
-
-    Typical usage:
-        Used by ``IDQN`` and ``IPPO``.
-    """
-    rewards = dict()
-    for signal_id in signals:
-        total_wait = 0
-        for lane in signals[signal_id].lanes:
-            total_wait += signals[signal_id].full_observation[lane]['total_wait']
-
-        rewards[signal_id] = np.clip(-total_wait/224, -4, 4).astype(np.float32)
-    return rewards
-
-
-def pressure(signals):
-    """Traffic-pressure reward using upstream minus downstream queue.
-
-    Computes queue pressure per signal as:
-    inbound queue - reachable downstream outbound queue, then returns its
-    negative. This encourages serving movements with larger local pressure
-    imbalances rather than only minimizing absolute wait.
-
-    Typical usage:
-        Used by ``MPLight``, ``MPLightFULL``, and ``MPLightVAL``.
-    """
-    rewards = dict()
-    for signal_id in signals:
-        queue_length = 0
-        for lane in signals[signal_id].lanes:
-            queue_length += signals[signal_id].full_observation[lane]['queue']
-
-        for lane in signals[signal_id].outbound_lanes:
-            dwn_signal = signals[signal_id].out_lane_to_signalid[lane]
-            if dwn_signal in signals[signal_id].signals:
-                queue_length -= signals[signal_id].signals[dwn_signal].full_observation[lane]['queue']
-
-        rewards[signal_id] = -queue_length
-    return rewards
-
-
-def queue_maxwait(signals):
-    """MA2C local reward combining queue length and max waiting penalty.
-
-    Per signal reward is the negative weighted sum of lane queue and lane
-    maximum waiting time:
-    ``-(queue + coef * max_wait)``, where ``coef`` comes from
-    ``mdp_configs['MA2C']['coef']``.
-
-    Typical usage:
-        MA2C-style worker reward component; not directly selected by any
-        current ``--agent`` option in this repository.
-    """
-    rewards = dict()
-    for signal_id in signals:
-        signal = signals[signal_id]
-        reward = 0
-        for lane in signal.lanes:
-            reward += signal.full_observation[lane]['queue']
-            reward += (signal.full_observation[lane]['max_wait'] * mdp_configs['MA2C']['coef'])
-        rewards[signal_id] = -reward
-    return rewards
-
-
-def queue_maxwait_neighborhood(signals):
-    """MA2C cooperative reward with downstream neighborhood shaping.
-
-    Starts from :func:`queue_maxwait` and adds discounted rewards of immediate
-    downstream neighbors using ``mdp_configs['MA2C']['coop_gamma']``.
-
-    Typical usage:
-        MA2C-style cooperative worker reward; not directly selected by any
-        current ``--agent`` option in this repository.
-    """
-    rewards = queue_maxwait(signals)
-    neighborhood_rewards = dict()
-    for signal_id in signals:
-        signal = signals[signal_id]
-        sum_reward = rewards[signal_id]
-
-        for key in signal.downstream:
-            neighbor = signal.downstream[key]
-            if neighbor is not None:
-                sum_reward += (mdp_configs['MA2C']['coop_gamma'] * rewards[neighbor])
-        neighborhood_rewards[signal_id] = sum_reward
-
-    return neighborhood_rewards
-
-
 def fma2c(signals):
     """Hierarchical FMA2C reward for workers and managers.
 
@@ -193,8 +276,7 @@ def fma2c(signals):
 
     This variant reads coefficients from ``mdp_configs['FMA2C']``.
 
-    Typical usage:
-        Used by ``FMA2C`` and ``FMA2CVAL``.
+    Used by ``FMA2C`` and ``FMA2CVAL``.
     """
     fma2c_config = _resolve_fma_config('FMA2C', signals)
     management = fma2c_config['management']
@@ -266,11 +348,10 @@ def fma2c_full(signals):
     """Full hierarchical reward variant for FMA2CFull experiments.
 
     Same reward structure as :func:`fma2c` (worker + manager terms), but with
-    parameters sourced from ``mdp_configs['FMA2CFull']``. This allows running a
-    separate experimental configuration without changing reward logic.
+     parameters sourced from ``mdp_configs['FMA2CFull']``. This allows running a
+     separate experimental configuration without changing reward logic.
 
-    Typical usage:
-        Used by ``FMA2CFull``.
+    Used by ``FMA2CFull``.
     """
     fma2c_config = _resolve_fma_config('FMA2CFull', signals)
     management = fma2c_config['management']
@@ -336,3 +417,6 @@ def fma2c_full(signals):
 
     neighborhood_rewards.update(management_neighborhood)
     return neighborhood_rewards
+
+#endregion
+#============================================================================================

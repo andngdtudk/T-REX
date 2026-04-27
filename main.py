@@ -26,7 +26,7 @@ def parse_arguments():
                         choices=['STOCHASTIC', 'MAXWAVE', 'MAXPRESSURE', 'IDQN', 'IPPO',
                                  'MPLight', 'MA2C', 'FMA2C', 'MPLightFULL', 'FMA2CFull', 'FMA2CVAL'],
                         help="Choose the RL-based or rule-based agent to run.")
-
+                        # TODO: fix MA2C
     parser.add_argument("--map", type=str, default='grid4x4',
                         choices=['grid4x4', 'arterial4x4', 'ingolstadt1', 'ingolstadt7', 'ingolstadt21',
                                  'cologne1', 'cologne3', 'cologne8', "kbh_red", "kbh_red_2", "kbh_red_3",
