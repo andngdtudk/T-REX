@@ -3,6 +3,8 @@ import numpy as np
 from TREX_comp.config.mdp_config import mdp_configs
 
 
+#region Resolve FMA config
+
 def _resolve_fma_config(config_key, signals):
     config = mdp_configs.get(config_key, {})
 
@@ -52,6 +54,9 @@ def _resolve_fma_config(config_key, signals):
     mdp_configs[config_key] = resolved
     return resolved
 
+#endregion
+#============================================================================================
+#region DRQs
 
 def drq(signals):
     observations = dict()
@@ -108,6 +113,9 @@ def drq_norm(signals):
         observations[signal_id] = np.expand_dims(np.asarray(obs), axis=0)
     return observations
 
+#endregion
+#============================================================================================
+#region MPLights
 
 def mplight(signals):
     observations = dict()
@@ -162,6 +170,9 @@ def mplight_full(signals):
         observations[signal_id] = np.asarray(obs)
     return observations
 
+#endregion
+#============================================================================================
+#region Wave
 
 def wave(signals):
     observations = dict()
@@ -176,6 +187,9 @@ def wave(signals):
         observations[signal_id] = np.asarray(state)
     return observations
 
+#endregion
+#============================================================================================
+#region MA2C & FMA2C
 
 def ma2c(signals):
     ma2c_config = mdp_configs['MA2C']

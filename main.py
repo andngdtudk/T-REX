@@ -14,6 +14,8 @@ from base_env import BaseEnv
 
 AGENT_ALIASES = {
     'FMA2CFull': 'FMA2CFULL',
+    "IDQNMULTI": "IDQN_MULTIMODAL",
+    "IDQN_MULTI": "IDQN_MULTIMODAL",
 }
 
 
@@ -23,7 +25,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Run traffic signal control simulations with different agents.")
     
     parser.add_argument("--agent", type=str, default='MPLight',
-                        choices=['STOCHASTIC', 'MAXWAVE', 'MAXPRESSURE', 'IDQN', 'IPPO',
+                        choices=['STOCHASTIC', 'MAXWAVE', 'MAXPRESSURE', 'IDQN', "IDQN_MULTIMODAL", 'IPPO',
                                  'MPLight', 'MA2C', 'FMA2C', 'MPLightFULL', 'FMA2CFull', 'FMA2CVAL'],
                         help="Choose the RL-based or rule-based agent to run.")
                         # TODO: fix MA2C
