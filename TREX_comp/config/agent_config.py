@@ -95,8 +95,8 @@ agent_configs = {
 
     "IDQN_MULTIMODAL": {
         'agent': IDQN,
-        'state': states.drq_norm,
-        'reward': rewards.wait_norm,
+        'state': states.drq_multimodal_norm,
+        'reward': rewards.wait_multimodal_norm,
         'max_distance': 200,
         'BATCH_SIZE': 32,
         'GAMMA': 0.99,

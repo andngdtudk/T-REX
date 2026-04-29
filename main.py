@@ -109,7 +109,7 @@ def run_trial(args, trial):
 
     env_class = BaseEnv if args.strategy == 1 else IncidentEnv
     env = env_class(
-        run_name=f"{agt_config['agent'].__name__}-tr{trial}",
+        run_name=f"{agent_key}-tr{trial}",
         map_name=args.map,
         net=os.path.join(args.pwd, map_config['net']),
         state_fn=agt_config['state'],

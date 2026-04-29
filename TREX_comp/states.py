@@ -113,6 +113,52 @@ def drq_norm(signals):
         observations[signal_id] = np.expand_dims(np.asarray(obs), axis=0)
     return observations
 
+# TODO: figure out good normalization
+def drq_multimodal_norm(signals):
+    observations = dict()
+    for signal_id in signals:
+        signal = signals[signal_id]
+        obs = []
+        act_index = signal.phase
+
+        # Pedestrian measures are signal-level; repeat per lane so tensor shape
+        #  remains lane x feature and stays compatible with the existing IDQN model.
+        # TODO: consider scales in mdp config instead of /28 here
+        ped_total_wait = float(signal.full_observation.get('ped_total_wait', 0.0)) / 28
+        ped_waiting = float(signal.full_observation.get('ped_waiting', 0.0)) / 28
+
+        for i, lane in enumerate(signal.lanes):
+            lane_obs = []
+            if i == act_index:
+                lane_obs.append(1)
+            else:
+                lane_obs.append(0)
+
+            lane_measures = signal.full_observation[lane]
+            total_wait = float(lane_measures.get('total_wait', 0.0))
+            bike_wait = float(lane_measures.get('bike_total_wait', 0.0))
+            car_wait = max(0.0, total_wait - bike_wait)
+
+            lane_obs.append(float(lane_measures.get('approach', 0.0)) / 28)
+            lane_obs.append(car_wait / 28)
+            lane_obs.append(bike_wait / 28)
+            lane_obs.append(float(lane_measures.get('queue', 0.0)) / 28)
+            lane_obs.append(float(lane_measures.get('bike_queue', 0.0)) / 28)
+
+            total_speed = 0.0
+            vehicles = lane_measures.get('vehicles', [])
+            for vehicle in vehicles:
+                total_speed += float(vehicle.get('speed', 0.0)) / 20 / 28
+            lane_obs.append(total_speed)
+
+            lane_obs.append(ped_total_wait)
+            lane_obs.append(ped_waiting)
+
+            obs.append(lane_obs)
+
+        observations[signal_id] = np.expand_dims(np.asarray(obs), axis=0)
+    return observations
+
 #endregion
 #============================================================================================
 #region MPLights
