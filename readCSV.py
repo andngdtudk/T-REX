@@ -8,7 +8,9 @@ import matplotlib.pyplot as plt
 # log_dir = os.path.join(os.path.dirname(os.path.dirname(os.getcwd())), 'results' + os.sep)
 # log_dir = os.path.join(os.path.dirname(os.getcwd()), 'results_s2' + os.sep)
 
-log_dir = os.path.join(os.getcwd(), 'results_test_new' + os.sep)
+PATHNAME = 'results'
+
+log_dir = os.path.join(os.getcwd(), PATHNAME + os.sep)
 
 # log_dir = '/mnt/raid/andng_backup/results_ic2' + os.sep
 
