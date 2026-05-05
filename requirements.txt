@@ -1,9 +1,12 @@
+# Install PyTorch separately first with the correct CUDA index:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+
 numpy
 pandas
 gym
 sumolib
 traci
-torch
-tensorflow # because you used tensorflow.compat.v1
+tensorflow
 pfrl
 eclipse-sumo
+libsumo

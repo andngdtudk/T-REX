@@ -45,6 +45,10 @@ class BaseEnv(gym.Env):
             print("Error checking map name for jupedsim, defaulting to no forced jupedsim. Error was:")
             traceback.print_exc()
 
+        disable_jupedsim = os.getenv("TREX_DISABLE_JUPEDSIM", "").strip().lower() in {"1", "true", "yes", "on"}
+        if disable_jupedsim:
+            self.force_jupedsim = False
+
         # Run some steps in the simulation with default light configurations to detect phases
         if self.route is not None:
             sumo_cmd = [sumolib.checkBinary('sumo'), '-n', net, '-r', self.route + '_1.rou.xml', '--no-warnings', 'True', '--duration-log.statistics', 'False']

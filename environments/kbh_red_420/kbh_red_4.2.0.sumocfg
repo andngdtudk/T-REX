@@ -27,7 +27,10 @@
         <ignore-route-errors value="true"/>
         <collision.action value="warn"/>
         <time-to-teleport value="300"/>
+        <!--
         <pedestrian.model value="jupedsim"/>
+        -->
+        <pedestrian.model value="striping"/>
         <pedestrian.striping.stripe-width value="0.55"/>
     </processing>
 

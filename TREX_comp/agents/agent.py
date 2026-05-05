@@ -1,3 +1,5 @@
+import hashlib
+import os
 import torch
 
 
@@ -18,6 +20,18 @@ class Agent(object):
         raise NotImplementedError
 
 
+def _safe_model_path(log_dir, agent_id, prefix="agent_", max_len=200):
+    # Sanitize and shorten filenames to avoid OS path-length limits.
+    safe_id = str(agent_id).replace(os.sep, "_").replace("..", "_")
+    if os.altsep:
+        safe_id = safe_id.replace(os.altsep, "_")
+    base_name = f"{prefix}{safe_id}"
+    if len(base_name) > max_len:
+        digest = hashlib.sha1(base_name.encode("utf-8")).hexdigest()[:10]
+        base_name = f"{prefix}{safe_id[: max_len - len(prefix) - 11]}_{digest}"
+    return os.path.join(log_dir, base_name)
+
+
 class IndependentAgent(Agent):
     def __init__(self, config, obs_act, map_name, thread_number):
         super().__init__()
@@ -35,7 +49,8 @@ class IndependentAgent(Agent):
             self.agents[agent_id].observe(observation[agent_id], reward[agent_id], done, info)
             if done:
                 if info['eps'] % self.config['save_freq'] == 0:
-                    self.agents[agent_id].save(self.config['log_dir']+'agent_'+agent_id)
+                    save_path = _safe_model_path(self.config['log_dir'], agent_id)
+                    self.agents[agent_id].save(save_path)
                 # if info['eps'] == 34:
                 #     self.agents[agent_id].save(self.config['log_dir']+'agent_'+agent_id)
 
@@ -80,4 +95,5 @@ class SharedAgent(Agent):
         self.agent.observe(batch_obs, batch_rew, batch_done, batch_reset)
         if done:
             if info['eps'] % self.config['save_freq'] == 0:
-                self.agent.save(self.config['log_dir']+'agent')
+                save_path = _safe_model_path(self.config['log_dir'], "shared", prefix="agent_")
+                self.agent.save(save_path)

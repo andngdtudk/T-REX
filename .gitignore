@@ -36,6 +36,11 @@
 ehthumbs.db
 Thumbs.db
 
-# pmt folder #
+# Non-code folders #
 ######################
 pmt/
+results/
+
+# Cache files #
+######################
+**/__pycache__/

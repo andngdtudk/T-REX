@@ -11,7 +11,7 @@ from pfrl.agents import DQN
 from pfrl.q_functions import DiscreteActionValueHead
 from pfrl.utils.contexts import evaluating
 
-from TREX_comp.agents.agent import IndependentAgent, Agent
+from TREX_comp.agents.agent import IndependentAgent, Agent, _safe_model_path
 
 
 class IDQN(IndependentAgent):
@@ -36,7 +36,8 @@ class IDQN(IndependentAgent):
             self.agents[key] = DQNAgent(config, act_space, model, lr=lr)
             if self.config['load']:
                 print('LOADING SAVED MODEL FOR EVALUATION')
-                self.agents[key].load(self.config['log_dir']+'agent_'+key+'.pt')
+                load_path = _safe_model_path(self.config['log_dir'], key) + '.pt'
+                self.agents[key].load(load_path)
                 self.agents[key].agent.training = False
 
 
