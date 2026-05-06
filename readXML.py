@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import sys
-from resco_benchmark.config.map_config import map_configs
+from TREX_comp.config.map_config import map_configs
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -12,7 +12,9 @@ import matplotlib.pyplot as plt
 # log_dir = os.path.join(os.path.dirname(os.path.dirname(os.getcwd())), 'results' + os.sep)
 # log_dir = os.path.join(os.path.dirname(os.getcwd()), 'results_s2' + os.sep)
 
-log_dir = os.path.join(os.getcwd(), 'results_test_ib_Ingolstadt21' + os.sep)
+PATHNAME = 'results'
+
+log_dir = os.path.join(os.getcwd(), PATHNAME + os.sep)
 
 
 # log_dir = '/mnt/raid/andng_backup/results_ic2' + os.sep
@@ -22,9 +24,7 @@ env_base = 'RESCO_main'+os.sep+'environments'+os.sep
 
 names = [folder for folder in next(os.walk(log_dir))[1]]
 
-# metrics = ['timeLoss', 'duration', 'waitingTime']
-
-metrics = ['duration']
+metrics = ['timeLoss', 'duration', 'waitingTime']
 
 # metrics = ['duration']
 

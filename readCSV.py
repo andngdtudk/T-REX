@@ -17,12 +17,12 @@ log_dir = os.path.join(os.getcwd(), PATHNAME + os.sep)
 env_base = '.'+os.sep+'environments'+os.sep
 names = [folder for folder in next(os.walk(log_dir))[1]]
 
-# metric = 'queue'
+# ======================== CHANGE ME ========================
+metric = 'queue'
 # metric = 'delay'
 # metric = 'wait'
 # metric = 'duration'
 
-metric = 'queue'
 output_file = 'avg_{}.py'.format(metric)
 run_avg = dict()
 
