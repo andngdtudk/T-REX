@@ -15,7 +15,8 @@ map_title = {
     'ingolstadt21': 'Ingolstadt Region',
     'cologne1': 'Cologne Single Signal',
     'cologne3': 'Cologne Corridor',
-    'cologne8': 'Cologne Region'
+    'cologne8': 'Cologne Region',
+    "kbh_red_420": "Copenhagen reduced 4.2.0"
 }
 
 alg_name = {
@@ -25,6 +26,7 @@ alg_name = {
     'MAXPRESSURE': 'Max Pressure',
     'FULLMAXPRESSURE': 'Max Pressure w/ All phases',
     'IDQN': 'IDQN',
+    "IDQN_MULTIMODAL": 'IDQN Multimodal',
     'MPLight': 'MPLight',
     'MPLightFULL': 'Full State MPLight',
     'FMA2C': 'FMA2C',
@@ -72,6 +74,12 @@ chart = {
         'Avg. Queue': [],
         'Avg. Trip Time': []
     },
+    'IDQN Multimodal': {
+        'Avg. Delay': [],
+        'Avg. Wait': [],
+        'Avg. Queue': [],
+        'Avg. Trip Time': []
+    }
 }
 
 for met_i, metric in enumerate(metrics):
@@ -171,6 +179,10 @@ for met_i, metric in enumerate(metrics):
         if bot < 0: bot = 0
         plt.ylim(bot, dqn_max)
         plt.show()
+
+        # Save the plots in the /plots dir
+        plt.savefig('plots/{}_{}.pdf'.format(map, metrics_str[met_i].split('.')[1]), bbox_inches='tight')
+        plt.clf()
 
 for alg in chart:
     print(alg)
