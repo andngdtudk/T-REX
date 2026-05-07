@@ -167,14 +167,14 @@ for met_i, metric in enumerate(metrics):
                     plt.plot(x, y, label=alg_name[alg])
                     plt.fill_between([], [], [])  # Advance color cycle
 
-        points = np.asarray([0, 20, 40, 60, 80, 100, num_episodes])
-        labels = ('0', '20', '40', '60', '80', '100', '..1400')
+        points = np.asarray([0, 20, 40, 60, 80, 100])
+        labels = ('0', '20', '40', '60', '80', '100')
         plt.yticks(fontsize=fs)
         plt.xticks(points, labels, fontsize=fs)
-        #plt.xlabel('Episode', fontsize=32)
-        #plt.ylabel('Delay (s)', fontsize=32)
+        plt.xlabel('Episode', fontsize=fs)
+        plt.ylabel(metrics_str[met_i], fontsize=fs)
         plt.title(map_title[map], fontsize=fs)
-        #plt.legend(prop={'size': 25})
+        plt.legend(prop={'size': fs - 2})
         bot, top = plt.ylim()
         if bot < 0: bot = 0
         plt.ylim(bot, dqn_max)

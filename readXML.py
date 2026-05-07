@@ -56,6 +56,9 @@ for metric in metrics:
                 last_depart_id = ''
                 for child in root:
                     try:
+                        id_value = child.attrib.get('id', '')
+                        if not id_value.startswith('car'):
+                            continue
                         num_trips += 1
                         total += float(child.attrib[metric])
                         if metric == 'timeLoss':
@@ -63,15 +66,13 @@ for metric in metrics:
                             depart_time = float(child.attrib['depart'])
                             if depart_time > last_departure_time_actual:
                                 last_departure_time_actual = depart_time
-                                last_depart_id = child.attrib['id']
+                                last_depart_id = id_value
                     except Exception as e:
                         #raise e
                         break
                 # route_file_name = env_base + map_name + os.sep + map_name + os.sep + map_name + '_' + str(i) + '.rou.xml'
                 route_file_candidates = [
                     os.path.join(env_base, map_name, 'routes_car.rou.xml'),
-                    os.path.join(env_base, map_name, 'routes_bike.rou.xml'),
-                    os.path.join(env_base, map_name, 'routes_ped.rou.xml'),
                 ]
                 route_file_candidates = [path for path in route_file_candidates if os.path.exists(path)]
                 if not route_file_candidates:
@@ -87,6 +88,8 @@ for metric in metrics:
                             if child.tag != 'vehicle':
                                 continue
                             id_value = child.attrib.get('id', '')
+                            if not id_value.startswith('car'):
+                                continue
                             # Exclude IDs with the form "incident_veh_xxx"
                             if id_value.startswith("incident_veh_"):
                                 print('last_depart_id:', last_depart_id)
