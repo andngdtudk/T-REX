@@ -284,6 +284,45 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
                 )
 
 
+def _sum_lane_metric(signals, metric_key):
+    total = 0.0
+    for signal in signals.values():
+        for lane in signal.lanes:
+            total += float(signal.full_observation[lane].get(metric_key, 0.0))
+    return total
+
+
+def _log_step_reward(env, rewards, step_number):
+    reward_name = getattr(env.reward_fn, '__name__', '')
+    if reward_name.startswith('fma2c'):
+        print(f"  step {step_number}: reward logging not implemented", flush=True)
+        return
+
+    if reward_name == 'pressure':
+        total_queue = _sum_lane_metric(env.signals, 'queue')
+        print(f"  step {step_number}: total_queue={total_queue:.2f}", flush=True)
+        return
+
+    if reward_name in {'wait', 'wait_norm'}:
+        total_wait = _sum_lane_metric(env.signals, 'total_wait')
+        print(f"  step {step_number}: total_wait={total_wait:.2f}", flush=True)
+        return
+
+    if reward_name == 'wait_multimodal_norm':
+        total_wait = _sum_lane_metric(env.signals, 'total_wait')
+        ped_wait = 0.0
+        for signal in env.signals.values():
+            ped_wait += float(signal.full_observation.get('ped_total_wait', 0.0))
+        print(f"  step {step_number}: total_wait={total_wait + ped_wait:.2f}", flush=True)
+        return
+
+    total_reward = 0.0
+    if isinstance(rewards, dict):
+        for value in rewards.values():
+            total_reward += float(value)
+    print(f"  step {step_number}: total_reward={total_reward:.4f}", flush=True)
+
+
 def run_episode(env, agent, obs=None):
     debug_episode = os.getenv('TREX_DEBUG_EPISODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     if obs is None:
@@ -308,6 +347,7 @@ def run_episode(env, agent, obs=None):
             print(f"  debug: decision {decisions + 1} actions={act}", flush=True)
             print(f"  debug: decision {decisions + 1} -> step", flush=True)
         obs, rew, done, info = env.step(act)
+        _log_step_reward(env, rew, decisions + 1)
         if debug_episode:
             print(f"  debug: decision {decisions + 1} -> observe", flush=True)
         agent.observe(obs, rew, done, info)
