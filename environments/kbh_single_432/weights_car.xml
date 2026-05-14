@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<data>
+    <interval id="compass_car_weights" begin="0" end="3600">
+        <edge id="-209692779#8" traveltime="10.523" compassSpeed="8.434" />
+        <edge id="-76815388#1.2" traveltime="31.500" compassSpeed="3.853" />
+        <edge id="-86370286#0" traveltime="3.463" compassSpeed="8.100" />
+        <edge id="-86370286#0.35" traveltime="3.216" compassSpeed="8.765" />
+        <edge id="1521722" traveltime="11.140" compassSpeed="6.863" />
+        <edge id="209692779#6" traveltime="14.680" compassSpeed="3.354" />
+        <edge id="209692779#6.58" traveltime="16.595" compassSpeed="1.897" />
+        <edge id="747921366#1" traveltime="18.898" compassSpeed="6.404" />
+        <edge id="8122261#3.140" traveltime="4.660" compassSpeed="6.405" />
+        <edge id="8122261#3.96" traveltime="6.384" compassSpeed="6.405" />
+        <edge id="86370286#0" traveltime="18.997" compassSpeed="3.804" />
+    </interval>
+</data>

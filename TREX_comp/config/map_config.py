@@ -223,9 +223,9 @@ map_configs = {
         'end_time': 3600,
         'warmup': 0
     },
-    'kbh_421': {
+    'kbh_single_432': {
         'lights': [],
-        'net': 'environments/kbh_421/kbh_4.2.1.sumocfg',
+        'net': 'environments/kbh_single_432/kbh_single_4.3.2.sumocfg',
         'route': None,
         'step_length': 10,
         'yellow_length': 3,
