@@ -11,6 +11,8 @@ PLOTS_DIR = "plots"
 TRIPINFO_PATTERN = re.compile(r"^tripinfo_(\d+)\.xml$")
 CAR_PREFIX = "car0_"
 METRICS = ("duration", "waitingTime", "stopTime", "timeLoss")
+# If True, skip trips that are not finished (arrival == -1 or vaporized == "end").
+SKIP_UNFINISHED = True
 
 
 def iter_tripinfo_metrics(xml_path):
@@ -23,6 +25,12 @@ def iter_tripinfo_metrics(xml_path):
 
 		trip_id = elem.get("id", "")
 		if not trip_id.startswith(CAR_PREFIX):
+			elem.clear()
+			continue
+
+		arrival = elem.get("arrival")
+		vaporized = elem.get("vaporized")
+		if SKIP_UNFINISHED and (arrival == "-1" or vaporized == "end"):
 			elem.clear()
 			continue
 
