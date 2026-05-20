@@ -217,6 +217,10 @@ def _format_metric(value):
     return f"{value:.2f}"
 
 
+def _count_never_arrived(rows):
+    return sum(1 for row in rows if row.get("duration") is not None and row["duration"] < 0)
+
+
 def _parse_tripinfo(tripinfo_path):
     if not os.path.exists(tripinfo_path):
         return []
@@ -383,6 +387,10 @@ def _print_section(label, sim_data, stats, include_safety):
     if include_safety:
         print(f" Emergency Stops: {_format_metric(sim_data.get('emergency_stops'))}")
         print(f" Emergency Brakings: {_format_metric(sim_data.get('emergency_brakings'))}")
+        if sim_data.get("never_arrived") is not None:
+            print(f" Never Arrived (duration=-1): {_format_metric(sim_data.get('never_arrived'))}")
+    elif sim_data.get("never_arrived") is not None:
+        print(f" Never Arrived (duration=-1): {_format_metric(sim_data.get('never_arrived'))}")
 
     print(f"{label} statistics (avg of {stats['count']}):")
     print(f" RouteLength: {_format_metric(stats['routeLength'])}")
@@ -409,6 +417,10 @@ def print_grouped_mode_summary(log_dir, connection_name, run, counters):
     car_sim = _compute_mode_sim_data(_MODE_CAR, car_rows, counters)
     bike_sim = _compute_mode_sim_data(_MODE_BIKE, bike_rows, counters)
     ped_sim = _compute_mode_sim_data(_MODE_PED, ped_rows, counters)
+
+    car_sim["never_arrived"] = _count_never_arrived(car_rows)
+    bike_sim["never_arrived"] = _count_never_arrived(bike_rows)
+    ped_sim["never_arrived"] = _count_never_arrived(ped_rows)
 
     car_stats = _stats_from_rows(car_rows)
     bike_stats = _stats_from_rows(bike_rows)
