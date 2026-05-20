@@ -39,8 +39,9 @@ Thumbs.db
 # Non-code folders #
 ######################
 pmt/
-results/
 
 # Cache files #
 ######################
 **/__pycache__/
+*.py[cod]
+*$py.class
