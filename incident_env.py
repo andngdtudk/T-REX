@@ -198,6 +198,8 @@ class IncidentEnv(gym.Env):
 
     def reset(self, pre_seed=(None, None)):
         """Reset the simulation environment."""
+        if hasattr(self.reward_fn, 'reset'):
+            self.reward_fn.reset()
         self.sim_step = 1
         self.sim_time = 1
 

@@ -138,6 +138,8 @@ class BaseEnv(gym.Env):
             update_runtime_counters(self.sumo, self.summary_counters)
         
     def reset(self):
+        if hasattr(self.reward_fn, 'reset'):
+            self.reward_fn.reset()
         if self.run != 0:
             if not self.libsumo: traci.switch(self.connection_name)
             self._finalize_current_run_summary()

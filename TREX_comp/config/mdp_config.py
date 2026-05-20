@@ -408,5 +408,16 @@ mdp_configs = {
             'norm_wait': 224.0,
             'clip_wait': 4.0,
         }
-    }
+    },
+    'IDQN_DELTASCALE': {
+        'kbh_joined_432': {
+            'norm_wait': 224.0,
+        }
+    },
+    'IDQN_DELTASCLIP': {
+        'kbh_joined_432': {
+            'norm_wait': 224.0,
+            'clip_wait': 4.0,
+        }
+    },
 }

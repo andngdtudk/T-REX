@@ -218,7 +218,16 @@ def _format_metric(value):
 
 
 def _count_never_arrived(rows):
-    return sum(1 for row in rows if row.get("duration") is not None and row["duration"] < 0)
+    count = 0
+    for row in rows:
+        duration = row.get("duration")
+        arrival = row.get("arrival")
+        if duration is not None and duration < 0:
+            count += 1
+            continue
+        if arrival is not None and arrival < 0:
+            count += 1
+    return count
 
 
 def _parse_tripinfo(tripinfo_path):
@@ -236,6 +245,7 @@ def _parse_tripinfo(tripinfo_path):
         vtype = node.attrib.get("vType", "")
         mode = _detect_vehicle_mode(trip_id, vtype=vtype)
         duration = _as_float(node.attrib.get("duration"), None)
+        arrival = _as_float(node.attrib.get("arrival"), None)
         route_length = _as_float(node.attrib.get("routeLength"), None)
         waiting_time = _as_float(node.attrib.get("waitingTime"), None)
         time_loss = _as_float(node.attrib.get("timeLoss"), None)
@@ -248,6 +258,7 @@ def _parse_tripinfo(tripinfo_path):
             {
                 "mode": mode,
                 "duration": duration,
+                "arrival": arrival,
                 "routeLength": route_length,
                 "speed": speed,
                 "waitingTime": waiting_time,
@@ -270,6 +281,7 @@ def _parse_personinfo(personinfo_path):
     rows = []
     for pnode in root.findall("personinfo"):
         duration = _as_float(pnode.attrib.get("duration"), None)
+        arrival = _as_float(pnode.attrib.get("arrival"), None)
         waiting_time = _as_float(pnode.attrib.get("waitingTime"), None)
         time_loss = _as_float(pnode.attrib.get("timeLoss"), None)
         depart_delay = _as_float(pnode.attrib.get("departDelay"), None)
@@ -303,6 +315,7 @@ def _parse_personinfo(personinfo_path):
         rows.append(
             {
                 "duration": duration,
+                "arrival": arrival,
                 "routeLength": route_length,
                 "speed": speed,
                 "waitingTime": waiting_time,
@@ -388,9 +401,9 @@ def _print_section(label, sim_data, stats, include_safety):
         print(f" Emergency Stops: {_format_metric(sim_data.get('emergency_stops'))}")
         print(f" Emergency Brakings: {_format_metric(sim_data.get('emergency_brakings'))}")
         if sim_data.get("never_arrived") is not None:
-            print(f" Never Arrived (duration=-1): {_format_metric(sim_data.get('never_arrived'))}")
+            print(f" Never Arrived (arrival=-1): {_format_metric(sim_data.get('never_arrived'))}")
     elif sim_data.get("never_arrived") is not None:
-        print(f" Never Arrived (duration=-1): {_format_metric(sim_data.get('never_arrived'))}")
+        print(f" Never Arrived (arrival=-1): {_format_metric(sim_data.get('never_arrived'))}")
 
     print(f"{label} statistics (avg of {stats['count']}):")
     print(f" RouteLength: {_format_metric(stats['routeLength'])}")

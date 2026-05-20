@@ -113,6 +113,11 @@ def drq_norm(signals):
         observations[signal_id] = np.expand_dims(np.asarray(obs), axis=0)
     return observations
 
+
+def drq_delta_norm(signals):
+    """Alias for :func:`drq_norm` to pair with delta rewards."""
+    return drq_norm(signals)
+
 # TODO: figure out good normalization
 def drq_multimodal_norm(signals):
     observations = dict()

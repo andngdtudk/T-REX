@@ -41,6 +41,121 @@ def wait_norm(signals):
         rewards[signal_id] = np.clip(-total_wait/224, -4, 4).astype(np.float32)
     return rewards
 
+def _delta_wait(signals, prev_waits):
+    """Compute raw delta waits and update previous-wait state."""
+    rewards = dict()
+    for signal_id in signals:
+        total_wait = 0.0
+        for lane in signals[signal_id].lanes:
+            total_wait += signals[signal_id].full_observation[lane]['total_wait']
+
+        prev_wait = prev_waits.get(signal_id)
+        if prev_wait is None:
+            rewards[signal_id] = 0.0
+        else:
+            rewards[signal_id] = prev_wait - total_wait
+        prev_waits[signal_id] = total_wait
+
+    return rewards
+
+
+def wait_delta(signals, prev_waits):
+    """Delta wait reward: change in total_wait since last step.
+
+    For each signal, this computes the change in total_wait across all inbound
+    lanes since the last step. Used to avoid monotony as a result of stuck vehicles
+
+    Used by ``IDQN_DELTA``.
+    """
+    rewards = _delta_wait(signals, prev_waits)
+    for signal_id, value in rewards.items():
+        rewards[signal_id] = np.float32(value)
+    return rewards
+
+
+def _get_delta_wait_config(config_key, require_clip=False):
+    raw = mdp_configs.get(config_key)
+    if not isinstance(raw, dict):
+        raise ValueError(f"Missing mdp_configs['{config_key}'] for delta reward config")
+
+    if 'norm_wait' not in raw:
+        raise ValueError(f"Missing norm_wait in mdp_configs['{config_key}']")
+    if require_clip and 'clip_wait' not in raw:
+        raise ValueError(f"Missing clip_wait in mdp_configs['{config_key}']")
+
+    cfg = {
+        'norm_wait': raw['norm_wait'],
+        'clip_wait': raw.get('clip_wait'),
+    }
+    return cfg
+
+def wait_delta_norm(signals):
+    """Stateful wrapper for :func:`wait_delta` with reset-safe bookkeeping.
+
+    Keeps previous waits across steps and resets automatically if the set of
+    signal IDs changes (for example, at episode boundaries).
+    """
+    prev_waits = getattr(wait_delta_norm, '_prev_waits', None)
+    signal_ids = set(signals.keys())
+    if prev_waits is None or set(prev_waits.keys()) != signal_ids:
+        prev_waits = {}
+        wait_delta_norm._prev_waits = prev_waits
+
+    return wait_delta(signals, prev_waits)
+
+
+def wait_delta_scale(signals):
+    """Scaled delta wait reward for IDQN_DELTASCALE."""
+    cfg = _get_delta_wait_config('IDQN_DELTASCALE')
+    prev_waits = getattr(wait_delta_scale, '_prev_waits', None)
+    signal_ids = set(signals.keys())
+    if prev_waits is None or set(prev_waits.keys()) != signal_ids:
+        prev_waits = {}
+        wait_delta_scale._prev_waits = prev_waits
+
+    rewards = _delta_wait(signals, prev_waits)
+    for signal_id, value in rewards.items():
+        rewards[signal_id] = np.float32(value / cfg['norm_wait'])
+    return rewards
+
+
+def wait_delta_sclip(signals):
+    """Scaled + clipped delta wait reward for IDQN_DELTASCLIP."""
+    cfg = _get_delta_wait_config('IDQN_DELTASCLIP', require_clip=True)
+    prev_waits = getattr(wait_delta_sclip, '_prev_waits', None)
+    signal_ids = set(signals.keys())
+    if prev_waits is None or set(prev_waits.keys()) != signal_ids:
+        prev_waits = {}
+        wait_delta_sclip._prev_waits = prev_waits
+
+    rewards = _delta_wait(signals, prev_waits)
+    for signal_id, value in rewards.items():
+        rewards[signal_id] = np.clip(
+            value / cfg['norm_wait'],
+            -cfg['clip_wait'],
+            cfg['clip_wait'],
+        ).astype(np.float32)
+    return rewards
+
+
+def _reset_wait_delta_norm():
+    wait_delta_norm._prev_waits = {}
+
+
+wait_delta_norm.reset = _reset_wait_delta_norm
+
+
+def _reset_wait_delta_scale():
+    wait_delta_scale._prev_waits = {}
+
+
+def _reset_wait_delta_sclip():
+    wait_delta_sclip._prev_waits = {}
+
+
+wait_delta_scale.reset = _reset_wait_delta_scale
+wait_delta_sclip.reset = _reset_wait_delta_sclip
+
 #endregion
 #============================================================================================
 #region Wait multimodal
