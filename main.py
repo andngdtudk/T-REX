@@ -324,6 +324,40 @@ def _log_step_reward(env, rewards, step_number):
     print(f"  step {step_number}: total_reward={total_reward:.4f}", flush=True)
 
 
+def _log_step_metrics(agent, step_metrics, step_number):
+    if step_metrics:
+        q_mean = step_metrics.get("q_mean")
+        q_max = step_metrics.get("q_max")
+        q_min = step_metrics.get("q_min")
+        entropy = step_metrics.get("action_entropy")
+        print(
+            f"  step {step_number}: q_mean={q_mean:.4f} q_max={q_max:.4f} q_min={q_min:.4f} "
+            f"entropy={entropy:.4f}",
+            flush=True,
+        )
+
+    if hasattr(agent, "training_stats"):
+        stats = agent.training_stats()
+        if stats:
+            loss = stats.get("average_loss", stats.get("loss"))
+            td_error = None
+            for key in stats:
+                if "td" in key.lower():
+                    td_error = stats[key]
+                    break
+            avg_q = stats.get("average_q", stats.get("q"))
+
+            parts = []
+            if loss is not None:
+                parts.append(f"loss={loss:.6f}")
+            if td_error is not None:
+                parts.append(f"td_error={td_error:.6f}")
+            if avg_q is not None:
+                parts.append(f"avg_q={avg_q:.6f}")
+            if parts:
+                print(f"  step {step_number}: " + " ".join(parts), flush=True)
+
+
 def run_episode(env, agent, obs=None):
     debug_episode = os.getenv('TREX_DEBUG_EPISODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     if obs is None:
@@ -333,6 +367,7 @@ def run_episode(env, agent, obs=None):
     while not done:
         if debug_episode:
             print(f"  debug: decision {decisions + 1} -> act", flush=True)
+        step_metrics = agent.step_metrics(obs) if hasattr(agent, "step_metrics") else None
         act = agent.act(obs)
         safe_act = {}
         for signal_id in getattr(env, 'signal_ids', []):
@@ -352,6 +387,7 @@ def run_episode(env, agent, obs=None):
         if debug_episode:
             print(f"  debug: decision {decisions + 1} -> observe", flush=True)
         agent.observe(obs, rew, done, info)
+        _log_step_metrics(agent, step_metrics, decisions + 1)
         decisions += 1
         if decisions % 100 == 0:
             print(
