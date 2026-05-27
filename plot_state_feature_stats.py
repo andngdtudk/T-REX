@@ -4,7 +4,18 @@ import os
 from pathlib import Path
 
 import pandas as pd
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as pltç
+
+"""
+Plot diagnostics from state_feature_stats.csv files.
+Usage:
+python plot_state_feature_stats.py --glob "results/**/state_feature_stats.csv" --plots_dir plots/state_diagnostics
+
+Optional arguments:
+--feature phase --feature total_wait to limit features
+--max_decision 300 to cap decisions
+--window 25 to adjust smoothing
+"""
 
 
 def _sanitize_filename(value):
