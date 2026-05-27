@@ -6,12 +6,14 @@ import matplotlib.pyplot as plt
 # usage:
 # python main.py --agent IDQN_DELTA --map kbh_joined_432 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs\idqn_delta.log 
 # 
-"""
+r"""
 python plot_idqn_metrics.py `
 >>   --log logs\idqn_deltasclip224.log ` 
 >>   --log logs\idqn_deltasclip55.log `
+>>   --log logs\idqn_deltascale.log `
 >>   --label IDQN_DELTASClip224 `
 >>   --label IDQN_DELTASCLIP55 `
+>>   --label IDQN_DELTASCALE `
 >>   --plots_dir plots `
 >>   --prefix idqn_compare
  """
@@ -106,12 +108,30 @@ def plot_q_band_across_agents(agent_series, title, output_path):
     return True
 
 
+def rolling_mean(values, window):
+    if window <= 1:
+        return values
+
+    result = []
+    window_vals = []
+    for value in values:
+        if value is None:
+            result.append(None)
+            continue
+        window_vals.append(value)
+        if len(window_vals) > window:
+            window_vals.pop(0)
+        result.append(sum(window_vals) / len(window_vals))
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="Plot IDQN training metrics from console logs.")
     parser.add_argument("--log", action="append", required=True, help="Path to a training log file.")
     parser.add_argument("--label", action="append", help="Optional label for each log (same order).")
     parser.add_argument("--plots_dir", default="plots", help="Output directory for plots.")
     parser.add_argument("--prefix", default="idqn", help="Filename prefix for saved plots.")
+    parser.add_argument("--reward_window", type=int, default=25, help="Rolling average window for reward plots.")
     args = parser.parse_args()
 
     labels = args.label or []
@@ -142,6 +162,8 @@ def main():
         "total_reward": ["total_reward"],
     }
 
+    reward_metrics = {"total_wait", "total_queue", "total_reward"}
+
     q_series = []
     for label, step_metrics in logs:
         steps, series = build_series(step_metrics, ["q_min", "q_max", "q_mean"])
@@ -164,20 +186,39 @@ def main():
 
     for metric_name, aliases in metric_aliases.items():
         agent_series = []
-        for label, step_metrics in logs:
-            steps = sorted(step_metrics.keys())
-            values = []
-            for step in steps:
-                value = None
-                for key in aliases:
-                    if key in step_metrics[step]:
-                        value = step_metrics[step][key]
-                        break
-                values.append(value)
+        if metric_name in reward_metrics:
+            grouped = {}
+            for label, step_metrics in logs:
+                for step in sorted(step_metrics.keys()):
+                    value = None
+                    for key in aliases:
+                        if key in step_metrics[step]:
+                            value = step_metrics[step][key]
+                            break
+                    if value is None:
+                        continue
+                    grouped.setdefault(label, {}).setdefault(step, []).append(value)
 
-            xs = [step for step, value in zip(steps, values) if value is not None]
-            ys = [value for value in values if value is not None]
-            agent_series.append((label, xs, ys))
+            for label, step_map in grouped.items():
+                steps = sorted(step_map.keys())
+                values = [sum(step_map[step]) / len(step_map[step]) for step in steps]
+                smoothed = rolling_mean(values, args.reward_window)
+                agent_series.append((label, steps, smoothed))
+        else:
+            for label, step_metrics in logs:
+                steps = sorted(step_metrics.keys())
+                values = []
+                for step in steps:
+                    value = None
+                    for key in aliases:
+                        if key in step_metrics[step]:
+                            value = step_metrics[step][key]
+                            break
+                    values.append(value)
+
+                xs = [step for step, value in zip(steps, values) if value is not None]
+                ys = [value for value in values if value is not None]
+                agent_series.append((label, xs, ys))
 
         output_path = os.path.join(args.plots_dir, f"{args.prefix}_{metric_name}.png")
         plot_metric_across_agents(agent_series, metric_name, output_path)

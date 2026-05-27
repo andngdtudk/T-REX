@@ -3,6 +3,8 @@ import argparse
 import multiprocessing as mp
 from pathlib import Path
 from collections import deque
+import csv
+import numpy as np
 
 from TREX_comp.config.agent_config import agent_configs
 from TREX_comp.config.map_config import map_configs
@@ -182,25 +184,42 @@ def run_trial(args, trial):
     agent = alg(agt_config, obs_act, args.map, trial, lr=args.lr) if alg.__name__ in {'MPLight', 'IDQN'} else \
             alg(agt_config, obs_act, args.map, trial)
 
+    feature_names = _get_idqn_feature_names(env.state_fn)
+    log_state_csv = None
+    if alg.__name__ == 'IDQN' and args.map == 'kbh_joined_432' and feature_names:
+        csv_path = os.path.join(agt_config['log_dir'], 'state_feature_stats.csv')
+        log_state_csv = open(csv_path, 'w', newline='')
+        writer = csv.DictWriter(
+            log_state_csv,
+            fieldnames=[
+                'episode', 'decision', 'feature', 'count', 'mean', 'std', 'min', 'max',
+                'p05', 'p95', 'nan_count', 'inf_count', 'zero_frac'
+            ],
+        )
+        writer.writeheader()
+        log_state_csv = (log_state_csv, writer, feature_names)
+
     # === Training or Testing ===
     try:
         if args.strategy == 1:
-            run_base_scenario(env, agent, args, agt_config)
+            run_base_scenario(env, agent, args, agt_config, log_state_csv)
         else:
-            run_incident_scenario(env, agent, args, agt_config, alg)
+            run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv)
     finally:
+        if log_state_csv is not None:
+            log_state_csv[0].close()
         env.close()
         print(f"Trial {trial} completed for {args.agent} on {args.map}.", flush=True)
 
 
 # === Helper Functions ===
 
-def run_base_scenario(env, agent, args, agt_config):
+def run_base_scenario(env, agent, args, agt_config, log_state_csv):
     if agt_config['load']:
         print('Testing under base condition...')
         for ep in range(args.seps, args.eps):
             print(f"Episode {ep + 1}/{args.eps} started (base test).", flush=True)
-            stats = run_episode(env, agent)
+            stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv)
             print(
                 f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                 f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -210,7 +229,7 @@ def run_base_scenario(env, agent, args, agt_config):
         print('Training under base condition...')
         for ep in range(args.eps):
             print(f"Episode {ep + 1}/{args.eps} started (base train).", flush=True)
-            stats = run_episode(env, agent)
+            stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv)
             print(
                 f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                 f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -218,7 +237,7 @@ def run_base_scenario(env, agent, args, agt_config):
             )
 
 
-def run_incident_scenario(env, agent, args, agt_config, alg):
+def run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv):
     map_id = args.map
     agent_name = alg.__name__
     seed_file_1 = f"{agent_name}{map_id}-seed_ic1.txt"
@@ -235,7 +254,7 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
                 seed_ic1, seed_ic2 = last_seeds_ic1.popleft(), last_seeds_ic2.popleft()
                 obs = env.reset(pre_seed=[seed_ic1, seed_ic2])
                 print(f"Episode {ep + 1}/{args.eps} started (incident test, seeded).", flush=True)
-                stats = run_episode(env, agent, obs)
+                stats = run_episode(env, agent, obs, episode_index=ep + 1, log_state_csv=log_state_csv)
                 print(
                     f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                     f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -245,7 +264,7 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
             print('Testing without predefined incident seeds...')
             for ep in range(args.seps, args.eps):
                 print(f"Episode {ep + 1}/{args.eps} started (incident test).", flush=True)
-                stats = run_episode(env, agent)
+                stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv)
                 print(
                     f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                     f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -264,7 +283,7 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
                     last_seed_ic1.append(env.seed_ic1)
                     last_seed_ic2.append(env.seed_ic2)
                 print(f"Episode {ep + 1}/{args.eps} started (incident train, seed capture).", flush=True)
-                stats = run_episode(env, agent, obs)
+                stats = run_episode(env, agent, obs, episode_index=ep + 1, log_state_csv=log_state_csv)
                 print(
                     f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                     f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -277,7 +296,7 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
             print('Training without saving incident seeds...')
             for ep in range(args.eps):
                 print(f"Episode {ep + 1}/{args.eps} started (incident train).", flush=True)
-                stats = run_episode(env, agent)
+                stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv)
                 print(
                     f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                     f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -358,7 +377,7 @@ def _log_step_metrics(agent, step_metrics, step_number):
                 print(f"  step {step_number}: " + " ".join(parts), flush=True)
 
 
-def run_episode(env, agent, obs=None):
+def run_episode(env, agent, obs=None, episode_index=None, log_state_csv=None):
     debug_episode = os.getenv('TREX_DEBUG_EPISODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     if obs is None:
         obs = env.reset()
@@ -383,6 +402,7 @@ def run_episode(env, agent, obs=None):
             print(f"  debug: decision {decisions + 1} actions={act}", flush=True)
             print(f"  debug: decision {decisions + 1} -> step", flush=True)
         obs, rew, done, info = env.step(act)
+        _log_state_features(obs, episode_index, decisions + 1, log_state_csv)
         _log_step_reward(env, rew, decisions + 1)
         if debug_episode:
             print(f"  debug: decision {decisions + 1} -> observe", flush=True)
@@ -401,6 +421,79 @@ def run_episode(env, agent, obs=None):
         'sim_time': sim_time,
         'done': done,
     }
+
+
+def _get_idqn_feature_names(state_fn):
+    state_name = getattr(state_fn, '__name__', '')
+    if state_name in {'drq_norm', 'drq_delta_norm'}:
+        return ['phase', 'approach', 'total_wait', 'queue', 'total_speed']
+    if state_name == 'drq_multimodal_norm':
+        return [
+            'phase', 'approach', 'car_wait', 'bike_wait', 'queue', 'bike_queue',
+            'total_speed', 'ped_total_wait', 'ped_waiting'
+        ]
+    return None
+
+
+def _log_state_features(obs, episode_index, decision_index, log_state_csv):
+    if log_state_csv is None:
+        return
+    file_handle, writer, feature_names = log_state_csv
+    if not isinstance(obs, dict):
+        return
+
+    arrays = []
+    expected_features = len(feature_names)
+    for obs_item in obs.values():
+        obs_arr = np.asarray(obs_item, dtype=np.float32)
+        if obs_arr.ndim == 3:
+            obs_arr = obs_arr[0]
+        if obs_arr.ndim != 2 or obs_arr.shape[-1] != expected_features:
+            continue
+        arrays.append(obs_arr.reshape(-1, expected_features))
+
+    if not arrays:
+        return
+
+    stacked = np.concatenate(arrays, axis=0)
+    for idx, feature in enumerate(feature_names):
+        values = stacked[:, idx]
+        nan_mask = np.isnan(values)
+        inf_mask = np.isinf(values)
+        clean = values[~nan_mask & ~inf_mask]
+        if clean.size == 0:
+            stats = {
+                'episode': episode_index,
+                'decision': decision_index,
+                'feature': feature,
+                'count': 0,
+                'mean': float('nan'),
+                'std': float('nan'),
+                'min': float('nan'),
+                'max': float('nan'),
+                'p05': float('nan'),
+                'p95': float('nan'),
+                'nan_count': int(np.sum(nan_mask)),
+                'inf_count': int(np.sum(inf_mask)),
+                'zero_frac': float('nan'),
+            }
+        else:
+            stats = {
+                'episode': episode_index,
+                'decision': decision_index,
+                'feature': feature,
+                'count': int(clean.size),
+                'mean': float(np.mean(clean)),
+                'std': float(np.std(clean)),
+                'min': float(np.min(clean)),
+                'max': float(np.max(clean)),
+                'p05': float(np.percentile(clean, 5)),
+                'p95': float(np.percentile(clean, 95)),
+                'nan_count': int(np.sum(nan_mask)),
+                'inf_count': int(np.sum(inf_mask)),
+                'zero_frac': float(np.mean(clean == 0.0)),
+            }
+        writer.writerow(stats)
 
 
 def load_seeds(filename, max_len):
