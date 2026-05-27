@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-05-20T19:51:41.413484+01:00 by Eclipse SUMO libsumo 1.26.0
+<!-- generated on 2026-05-25T21:40:43.140609+01:00 by Eclipse SUMO libsumo 1.26.0
 <libsumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/libsumoConfiguration.xsd">
 
     <input>
-        <net-file value="/home/s243292/pmt/T-REX/environments/kbh_joined_432/kbh_joined_4.3.2.net.xml"/>
-        <route-files value="/home/s243292/pmt/T-REX/environments/kbh_joined_432/routes_car.rou.xml"/>
-        <additional-files value="/home/s243292/pmt/T-REX/environments/kbh_joined_432/vtypes.xml"/>
+        <net-file value="C:\Users\cl415\Desktop\IC(CCP)\tfm\T-Rex\environments/kbh_joined_432/kbh_joined_4.3.2.net.xml"/>
+        <route-files value="C:\Users\cl415\Desktop\IC(CCP)\tfm\T-Rex\environments/kbh_joined_432/routes_car.rou.xml"/>
+        <additional-files value="C:\Users\cl415\Desktop\IC(CCP)\tfm\T-Rex\environments/kbh_joined_432/vtypes.xml"/>
     </input>
 
     <output>
-        <tripinfo-output value="/home/s243292/pmt/T-REX/results/IDQN_DELTASCLIP-tr0-kbh_joined_432-0-drq_delta_norm-wait_delta_sclip/tripinfo_83.xml"/>
+        <tripinfo-output value="C:\Users\cl415\Desktop\IC(CCP)\tfm\T-Rex\results\IDQN_DELTASCLIP-tr0-kbh_joined_432-0-drq_delta_norm-wait_delta_sclip\tripinfo_83.xml"/>
         <tripinfo-output.write-unfinished value="true"/>
-        <personinfo-output value="/home/s243292/pmt/T-REX/results/IDQN_DELTASCLIP-tr0-kbh_joined_432-0-drq_delta_norm-wait_delta_sclip/personinfo_83.xml"/>
+        <personinfo-output value="C:\Users\cl415\Desktop\IC(CCP)\tfm\T-Rex\results\IDQN_DELTASCLIP-tr0-kbh_joined_432-0-drq_delta_norm-wait_delta_sclip\personinfo_83.xml"/>
     </output>
 
     <time>
@@ -26,7 +26,7 @@
         <ignore-route-errors value="true"/>
         <collision.action value="warn"/>
         <time-to-teleport value="-1"/>
-        <pedestrian.model value="striping"/>
+        <pedestrian.model value="jupedsim"/>
         <pedestrian.striping.stripe-width value="0.55"/>
     </processing>
 

@@ -5,12 +5,16 @@ import matplotlib.pyplot as plt
 
 # usage:
 # python main.py --agent IDQN_DELTA --map kbh_joined_432 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs\idqn_delta.log 
-# python plot_idqn_metrics.py `
-#>>   --log logs\idqn_delta.log `
-#>>   --label IDQN_DELTA `            
-#>>   --plots_dir plots `             
-#>>   --prefix idqn_delta
-
+# 
+"""
+python plot_idqn_metrics.py `
+>>   --log logs\idqn_deltasclip224.log ` 
+>>   --log logs\idqn_deltasclip55.log `
+>>   --label IDQN_DELTASClip224 `
+>>   --label IDQN_DELTASCLIP55 `
+>>   --plots_dir plots `
+>>   --prefix idqn_compare
+ """
 STEP_PATTERN = re.compile(r"step\s+(\d+):")
 KV_PATTERN = re.compile(r"([a-zA-Z_]+)=([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)")
 

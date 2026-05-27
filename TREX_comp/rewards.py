@@ -1,3 +1,5 @@
+import csv
+
 import numpy as np
 
 from TREX_comp.config.mdp_config import mdp_configs
@@ -55,6 +57,12 @@ def _delta_wait(signals, prev_waits):
         else:
             rewards[signal_id] = prev_wait - total_wait
         prev_waits[signal_id] = total_wait
+
+        # Log deltas to CSV for analysis
+        with open('logs/delta_log.csv', 'a') as f:
+            writer = csv.writer(f)
+            for sid, val in rewards.items():
+                writer.writerow([sid, val])
 
     return rewards
 
