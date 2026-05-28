@@ -17,4 +17,8 @@ source pmt/bin/activate
 
 export TREX_DISABLE_JUPEDSIM=1
 
+en linux
+python3 main.py --agent IDQN --map kbh_red_420 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | tee logs\idqn.log 
+
+en win
 python3 main.py --agent IDQN --map kbh_red_420 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs\idqn.log 

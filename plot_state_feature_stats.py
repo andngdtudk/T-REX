@@ -4,17 +4,29 @@ import os
 from pathlib import Path
 
 import pandas as pd
-import matplotlib.pyplot as pltç
+import matplotlib.pyplot as plt
 
 """
 Plot diagnostics from state_feature_stats.csv files.
-Usage:
+Usage win:
 python plot_state_feature_stats.py --glob "results/**/state_feature_stats.csv" --plots_dir plots/state_diagnostics
+
+Usage linux:
+python plot_state_feature_stats.py \
+    --glob "results/**/state_feature_stats.csv" \
+    --plots_dir plots/state_diagnostics
 
 Optional arguments:
 --feature phase --feature total_wait to limit features
 --max_decision 300 to cap decisions
 --window 25 to adjust smoothing
+--wandb to log to Weights & Biases (wandb)
+
+phase: binary flag per lane; 1 if the lane index equals the current signal phase index, else 0.
+approach: count of vehicles on the lane that are moving (not queued) within detector range.
+total_wait: sum of waiting times (seconds) of all vehicles currently queued on the lane.
+queue: count of queued vehicles on the lane (vehicles with wait > 0).
+total_speed: sum of speeds (m/s) of all vehicles detected on the lane.
 """
 
 
@@ -65,7 +77,7 @@ def plot_feature_series(grouped, feature, metric, plots_dir, window):
 
     if not plotted:
         plt.close()
-        return False
+        return False, None
 
     plt.xlabel("Decision")
     plt.ylabel(metric)
@@ -78,7 +90,7 @@ def plot_feature_series(grouped, feature, metric, plots_dir, window):
     output_path = os.path.join(plots_dir, filename)
     plt.savefig(output_path, dpi=150)
     plt.close()
-    return True
+    return True, output_path
 
 
 def plot_feature_band(grouped, feature, plots_dir, window):
@@ -98,7 +110,7 @@ def plot_feature_band(grouped, feature, plots_dir, window):
 
     if not plotted:
         plt.close()
-        return False
+        return False, None
 
     plt.xlabel("Decision")
     plt.ylabel("value")
@@ -111,7 +123,47 @@ def plot_feature_band(grouped, feature, plots_dir, window):
     output_path = os.path.join(plots_dir, filename)
     plt.savefig(output_path, dpi=150)
     plt.close()
-    return True
+    return True, output_path
+
+
+def _parse_tags(value):
+    if not value:
+        return None
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def log_wandb(grouped, run_name, metrics, args):
+    try:
+        import wandb
+    except Exception as exc:
+        raise RuntimeError("wandb is not available; install it with `pip install wandb`.") from exc
+
+    run = wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_entity,
+        name=args.wandb_run_name or run_name,
+        group=args.wandb_group,
+        tags=_parse_tags(args.wandb_tags),
+        mode=args.wandb_mode,
+        config={
+            "glob": args.glob,
+            "window": args.window,
+            "max_decision": args.max_decision,
+            "features": args.feature,
+        },
+        reinit=True,
+    )
+
+    run_frame = grouped[grouped["run"] == run_name]
+    for decision, frame in run_frame.groupby("decision"):
+        payload = {"decision": int(decision)}
+        for _, row in frame.iterrows():
+            feature = row["feature"]
+            for metric in metrics:
+                payload[f"{feature}/{metric}"] = float(row[metric])
+        wandb.log(payload, step=int(decision))
+
+    run.finish()
 
 
 def main():
@@ -144,6 +196,42 @@ def main():
         "--feature",
         action="append",
         help="Feature name to include (repeatable).",
+    )
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Log per-decision metrics to Weights & Biases.",
+    )
+    parser.add_argument(
+        "--wandb_project",
+        default="trex-state-features",
+        help="Weights & Biases project name.",
+    )
+    parser.add_argument(
+        "--wandb_entity",
+        default=None,
+        help="Weights & Biases entity/team (optional).",
+    )
+    parser.add_argument(
+        "--wandb_run_name",
+        default=None,
+        help="Weights & Biases run name (defaults to run folder).",
+    )
+    parser.add_argument(
+        "--wandb_group",
+        default=None,
+        help="Weights & Biases group name (optional).",
+    )
+    parser.add_argument(
+        "--wandb_tags",
+        default=None,
+        help="Comma-separated list of Weights & Biases tags.",
+    )
+    parser.add_argument(
+        "--wandb_mode",
+        default="online",
+        choices=["online", "offline", "disabled"],
+        help="Weights & Biases mode.",
     )
     args = parser.parse_args()
 
@@ -183,10 +271,16 @@ def main():
     plotted_any = False
     for feature in features:
         for metric in metrics:
-            plotted_any |= plot_feature_series(
+            plotted, output_path = plot_feature_series(
                 run_groups, feature, metric, args.plots_dir, args.window
             )
-        plotted_any |= plot_feature_band(run_groups, feature, args.plots_dir, args.window)
+            plotted_any |= plotted
+        plotted, output_path = plot_feature_band(run_groups, feature, args.plots_dir, args.window)
+        plotted_any |= plotted
+
+    if args.wandb:
+        for run_name, _ in run_groups:
+            log_wandb(grouped, run_name, metrics, args)
 
     if plotted_any:
         print(f"Plots saved to {args.plots_dir}")

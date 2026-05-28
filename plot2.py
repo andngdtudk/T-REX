@@ -24,44 +24,47 @@ def iter_tripinfo_metrics(xml_path):
 	totals = {m: 0.0 for m in METRICS}
 	count = 0
 
-	for _event, elem in ET.iterparse(xml_path, events=("end",)):
-		if elem.tag != "tripinfo":
-			continue
+	try:
+		for _event, elem in ET.iterparse(xml_path, events=("end",)):
+			if elem.tag != "tripinfo":
+				continue
 
-		trip_id = elem.get("id", "")
-		if not trip_id.startswith(CAR_PREFIX):
+			trip_id = elem.get("id", "")
+			if not trip_id.startswith(CAR_PREFIX):
+				elem.clear()
+				continue
+
+			arrival = elem.get("arrival")
+			vaporized = elem.get("vaporized")
+			if SKIP_UNFINISHED and (arrival == "-1" or vaporized == "end"):
+				elem.clear()
+				continue
+
+			values = {}
+			valid = True
+			for metric in METRICS:
+				raw = elem.get(metric)
+				if raw is None:
+					valid = False
+					break
+				try:
+					value = float(raw)
+				except ValueError:
+					valid = False
+					break
+				if value == -1:
+					valid = False
+					break
+				values[metric] = value
+
+			if valid:
+				for metric, value in values.items():
+					totals[metric] += value
+				count += 1
+
 			elem.clear()
-			continue
-
-		arrival = elem.get("arrival")
-		vaporized = elem.get("vaporized")
-		if SKIP_UNFINISHED and (arrival == "-1" or vaporized == "end"):
-			elem.clear()
-			continue
-
-		values = {}
-		valid = True
-		for metric in METRICS:
-			raw = elem.get(metric)
-			if raw is None:
-				valid = False
-				break
-			try:
-				value = float(raw)
-			except ValueError:
-				valid = False
-				break
-			if value == -1:
-				valid = False
-				break
-			values[metric] = value
-
-		if valid:
-			for metric, value in values.items():
-				totals[metric] += value
-			count += 1
-
-		elem.clear()
+	except ET.ParseError as exc:
+		print(f"Warning: failed to parse {xml_path}: {exc}")
 
 	if count == 0:
 		return {m: math.nan for m in METRICS}
@@ -79,31 +82,34 @@ def detect_vehicle_mode(trip_id, vtype):
 def iter_tripinfo_never_arrived(xml_path):
 	counts = {MODE_CAR: 0, MODE_BIKE: 0}
 
-	for _event, elem in ET.iterparse(xml_path, events=("end",)):
-		if elem.tag != "tripinfo":
-			continue
+	try:
+		for _event, elem in ET.iterparse(xml_path, events=("end",)):
+			if elem.tag != "tripinfo":
+				continue
 
-		trip_id = elem.get("id", "")
-		vtype = elem.get("vType", "")
-		mode = detect_vehicle_mode(trip_id, vtype)
+			trip_id = elem.get("id", "")
+			vtype = elem.get("vType", "")
+			mode = detect_vehicle_mode(trip_id, vtype)
 
-		duration = elem.get("duration")
-		arrival = elem.get("arrival")
-		try:
-			duration_value = float(duration) if duration is not None else None
-		except ValueError:
-			duration_value = None
-		try:
-			arrival_value = float(arrival) if arrival is not None else None
-		except ValueError:
-			arrival_value = None
+			duration = elem.get("duration")
+			arrival = elem.get("arrival")
+			try:
+				duration_value = float(duration) if duration is not None else None
+			except ValueError:
+				duration_value = None
+			try:
+				arrival_value = float(arrival) if arrival is not None else None
+			except ValueError:
+				arrival_value = None
 
-		if duration_value is not None and duration_value < 0:
-			counts[mode] += 1
-		elif arrival_value is not None and arrival_value < 0:
-			counts[mode] += 1
+			if duration_value is not None and duration_value < 0:
+				counts[mode] += 1
+			elif arrival_value is not None and arrival_value < 0:
+				counts[mode] += 1
 
-		elem.clear()
+			elem.clear()
+	except ET.ParseError as exc:
+		print(f"Warning: failed to parse {xml_path}: {exc}")
 
 	return counts
 
@@ -111,27 +117,30 @@ def iter_tripinfo_never_arrived(xml_path):
 def iter_personinfo_never_arrived(xml_path):
 	count = 0
 
-	for _event, elem in ET.iterparse(xml_path, events=("end",)):
-		if elem.tag != "personinfo":
-			continue
+	try:
+		for _event, elem in ET.iterparse(xml_path, events=("end",)):
+			if elem.tag != "personinfo":
+				continue
 
-		duration = elem.get("duration")
-		arrival = elem.get("arrival")
-		try:
-			duration_value = float(duration) if duration is not None else None
-		except ValueError:
-			duration_value = None
-		try:
-			arrival_value = float(arrival) if arrival is not None else None
-		except ValueError:
-			arrival_value = None
+			duration = elem.get("duration")
+			arrival = elem.get("arrival")
+			try:
+				duration_value = float(duration) if duration is not None else None
+			except ValueError:
+				duration_value = None
+			try:
+				arrival_value = float(arrival) if arrival is not None else None
+			except ValueError:
+				arrival_value = None
 
-		if duration_value is not None and duration_value < 0:
-			count += 1
-		elif arrival_value is not None and arrival_value < 0:
-			count += 1
+			if duration_value is not None and duration_value < 0:
+				count += 1
+			elif arrival_value is not None and arrival_value < 0:
+				count += 1
 
-		elem.clear()
+			elem.clear()
+	except ET.ParseError as exc:
+		print(f"Warning: failed to parse {xml_path}: {exc}")
 
 	return count
 
