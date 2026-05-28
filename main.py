@@ -46,9 +46,15 @@ def parse_arguments():
     parser.add_argument("--pwd", type=str, default=os.path.dirname(__file__), help="Project working directory.")
     parser.add_argument("--log_dir", type=str, default=os.path.join(os.getcwd(), 'results' + os.sep),
                         help="Directory to save logs and results.")
+    parser.add_argument("--load_dir", type=str, default=None,
+                        help="Directory to load a saved model from (overrides log_dir when --load is True).")
 
     parser.add_argument("--gui", type=bool, default=False, help="Whether to enable SUMO GUI.")
-    parser.add_argument("--libsumo", type=bool, default=True, help="Use libsumo instead of traci.")
+    parser.add_argument("--libsumo", dest="libsumo", action="store_true",
+                        help="Use libsumo instead of traci.")
+    parser.add_argument("--no-libsumo", dest="libsumo", action="store_false",
+                        help="Disable libsumo and use traci.")
+    parser.set_defaults(libsumo=True)
     parser.add_argument("--tr", type=int, default=0, help="Trial number (important when using libsumo).")
 
     parser.add_argument("--seps", type=int, default=0, help="Episode to start from when resuming training.")
@@ -72,7 +78,7 @@ def parse_arguments():
 def main():
     args = parse_arguments()
 
-    if args.libsumo and 'LIBSUMO_AS_TRACI' not in os.environ:
+    if args.libsumo and not os.environ.get('LIBSUMO_AS_TRACI'):
         raise EnvironmentError("Set LIBSUMO_AS_TRACI to a nonempty value to enable libsumo.")
 
     if args.procs == 1 or args.libsumo:
@@ -167,10 +173,13 @@ def run_trial(args, trial):
     num_steps_eps = int((map_config['end_time'] - map_config['start_time']) / map_config['step_length'])
     train_eps = max(1, int(args.eps * 0.8))
     train_steps = max(1, train_eps * num_steps_eps)
+    run_log_dir = os.path.join(args.log_dir, env.connection_name)
+    load_dir = args.load_dir if args.load_dir else run_log_dir
     agt_config.update({
         'episodes': train_eps,
         'steps': train_steps,
-        'log_dir': os.path.join(args.log_dir, env.connection_name),
+        'log_dir': run_log_dir,
+        'load_dir': load_dir,
         'num_lights': len(env.all_ts_ids),
         'save_freq': 50 if alg.__name__ in {'IPPO', 'FMA2C'} else 10,
         'load': args.load

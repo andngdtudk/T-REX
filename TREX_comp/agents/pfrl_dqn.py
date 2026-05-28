@@ -54,7 +54,8 @@ class IDQN(IndependentAgent):
             self.agents[key] = DQNAgent(config, act_space, model, lr=lr)
             if self.config['load']:
                 print('LOADING SAVED MODEL FOR EVALUATION')
-                load_path = _safe_model_path(self.config['log_dir'], key) + '.pt'
+                load_dir = self.config.get('load_dir', self.config['log_dir'])
+                load_path = _safe_model_path(load_dir, key) + '.pt'
                 self.agents[key].load(load_path)
                 self.agents[key].agent.training = False
 
