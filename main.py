@@ -28,7 +28,7 @@ def parse_arguments():
     
     parser.add_argument("--agent", type=str, default='MPLight',
                         choices=['STOCHASTIC', 'MAXWAVE', 'MAXPRESSURE', 'IDQN', "IDQN_MULTIMODAL", 'IDQN_DELTA',
-                                 'IDQN_DELTASCALE', 'IDQN_DELTASCLIP', 'IPPO', 'MPLight', 'MA2C', 'FMA2C',
+                                 'IDQN_DELTASCALE', 'IDQN_DELTASCLIP', 'IDQN_DELTAVAR', 'IPPO', 'MPLight', 'MA2C', 'FMA2C',
                                  'MPLightFULL', 'FMA2CFull', 'FMA2CVAL'],
                         help="Choose the RL-based or rule-based agent to run.")
                         # TODO: fix MA2C

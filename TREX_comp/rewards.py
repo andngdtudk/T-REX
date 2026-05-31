@@ -146,6 +146,67 @@ def wait_delta_sclip(signals):
     return rewards
 
 
+def _get_delta_var_config(config_key, require_clip=False):
+    raw = mdp_configs.get(config_key)
+    if not isinstance(raw, dict):
+        raise ValueError(f"Missing mdp_configs['{config_key}'] for delta fairness config")
+
+    if 'norm_wait' not in raw:
+        raise ValueError(f"Missing norm_wait in mdp_configs['{config_key}']")
+    if 'lambda_f' not in raw:
+        raise ValueError(f"Missing lambda_f in mdp_configs['{config_key}']")
+    if require_clip and 'clip_wait' not in raw:
+        raise ValueError(f"Missing clip_wait in mdp_configs['{config_key}']")
+
+    cfg = {
+        'norm_wait': raw['norm_wait'],
+        'clip_wait': raw.get('clip_wait'),
+        'lambda_f': raw['lambda_f'],
+    }
+    return cfg
+
+
+def wait_delta_var(signals):
+    """Delta wait reward with variance-based fairness penalty for IDQN_DELTAVAR."""
+    cfg = _get_delta_var_config('IDQN_DELTAVAR', require_clip=True)
+    prev_waits = getattr(wait_delta_var, '_prev_waits', None)
+    signal_ids = set(signals.keys())
+    if prev_waits is None or set(prev_waits.keys()) != signal_ids:
+        prev_waits = {}
+        wait_delta_var._prev_waits = prev_waits
+
+    rewards = {}
+    for signal_id, signal in signals.items():
+        total_wait = 0.0
+        lane_waits = []
+        for lane in signal.lanes:
+            lane_wait = float(signal.full_observation[lane]['total_wait'])
+            total_wait += lane_wait
+            lane_waits.append(lane_wait)
+
+        prev_wait = prev_waits.get(signal_id)
+        if prev_wait is None:
+            delta_wait = 0.0
+        else:
+            delta_wait = prev_wait - total_wait
+        prev_waits[signal_id] = total_wait
+
+        mean_wait = np.mean(lane_waits) if lane_waits else 1.0
+        cv = np.std(lane_waits) / (mean_wait + 1e-8)  # coefficient of variation
+        if lane_waits:
+            fairness_penalty = cfg['lambda_f'] *  cv * mean_wait
+        else:
+            fairness_penalty = 0.0
+        reward = (delta_wait - fairness_penalty) / cfg['norm_wait']
+        rewards[signal_id] = np.clip(
+            reward,
+            -cfg['clip_wait'],
+            cfg['clip_wait'],
+        ).astype(np.float32)
+
+    return rewards
+
+
 def _reset_wait_delta_norm():
     wait_delta_norm._prev_waits = {}
 
@@ -161,8 +222,13 @@ def _reset_wait_delta_sclip():
     wait_delta_sclip._prev_waits = {}
 
 
+def _reset_wait_delta_var():
+    wait_delta_var._prev_waits = {}
+
+
 wait_delta_scale.reset = _reset_wait_delta_scale
 wait_delta_sclip.reset = _reset_wait_delta_sclip
+wait_delta_var.reset = _reset_wait_delta_var
 
 #endregion
 #============================================================================================
