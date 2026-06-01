@@ -424,7 +424,7 @@ mdp_configs = {
         'kbh_joined_432': {
             'norm_wait': 224.0,
             'clip_wait': 4.0,
-            'lambda_f': 0.001,
+            'lambda_f': 0.5,
         }
     }
 }

@@ -215,7 +215,6 @@ class Signal:
                         continue
                     if inbound_lane not in lane_to_signal:
                         lane_to_signal[inbound_lane] = signal_id
-                    break
         return lane_to_signal
 
     def _infer_downstream_signal(self, links, inbound_lanes, lane_to_signal):
@@ -257,22 +256,26 @@ class Signal:
 
             # Prefer external inbound lanes; internal connector lanes (':...')
             # should not be used as approach detectors.
-            selected_link = None
+            inbound_lanes = []
             for link in link_group:
-                if not link[0].startswith(':'):
-                    selected_link = link
-                    break
-            if selected_link is None:
+                if link[0].startswith(':'):
+                    continue
+                if link[0] not in inbound_lanes:
+                    inbound_lanes.append(link[0])
+            if not inbound_lanes:
                 continue
 
-            if selected_link[0] not in self.lanes:
-                self.lanes.append(selected_link[0])
+            for lane_id in inbound_lanes:
+                if lane_id not in self.lanes:
+                    self.lanes.append(lane_id)
             # Group of lanes constituting a direction of traffic
             # right, left, straight
-            if i % 3 == 0:
-                index = int(i/3)
-                if index in index_to_movement:
-                    self.lane_sets[index_to_movement[index]].append(selected_link[0])
+            index = int(i / 3)
+            if index in index_to_movement:
+                movement = index_to_movement[index]
+                for lane_id in inbound_lanes:
+                    if lane_id not in self.lane_sets[movement]:
+                        self.lane_sets[movement].append(lane_id)
 
         # Build inbound lanes grouped by the direction they come from.
         self.inbounds_fr_direction = {}

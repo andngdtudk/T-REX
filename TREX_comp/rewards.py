@@ -1,8 +1,11 @@
 import csv
+from time import sleep
+from unittest import signals
 
 import numpy as np
 
 from TREX_comp.config.mdp_config import mdp_configs
+import traci
 
 #region Waits
 
@@ -176,7 +179,16 @@ def wait_delta_var(signals):
         wait_delta_var._prev_waits = prev_waits
 
     rewards = {}
+    """ print(f"Total controlled lanes: {len(control_lanes)}")
+    control_lanes = traci.trafficlight.getControlledLanes('J8')
+    for i, lane in enumerate(control_lanes):
+        print(f"Position {i}: {lane}")"""
+
     for signal_id, signal in signals.items():
+        """ print("Lanes in agent observation:")
+        for lane in signals[signal_id].lanes:
+            print(f"  {lane}")
+            sleep(5)  # Add a small delay to ensure all lane information is printed """
         total_wait = 0.0
         lane_waits = []
         for lane in signal.lanes:

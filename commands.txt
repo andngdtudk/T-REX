@@ -21,7 +21,8 @@ en linux
 python3 main.py --agent IDQN --map kbh_red_420 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | tee logs\idqn.log 
 
 en win
-python3 main.py --agent IDQN --map kbh_red_420 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs\idqn.log 
+New-Item -ItemType Directory -Path logs -Force
+python main.py --agent IDQN --map kbh_red_420 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs/idqn.log 
 
 LOAD CON GUI:
 Remove-Item Env:LIBSUMO_AS_TRACI
