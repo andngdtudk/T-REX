@@ -418,6 +418,10 @@ mdp_configs = {
         'kbh_joined_432': {
             'norm_wait': 224.0, # 55: 95 percentile of deltas in training logs
             'clip_wait': 4.0,  #
+        },
+        "kbh_j1_441": {
+            'norm_wait': 224.0,
+            'clip_wait': 4.0,
         }
     },
     'IDQN_DELTAVAR': {
