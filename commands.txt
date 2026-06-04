@@ -29,3 +29,5 @@ LOAD CON GUI:
 Remove-Item Env:LIBSUMO_AS_TRACI
 Get-ChildItem Env:LIBSUMO_AS_TRACI
 python main.py --agent IDQN_DELTASCLIP --map kbh_joined_432 --load True --eps 1 --gui True --no-libsumo --strategy 1 --load_dir "results\IDQN_DELTASCLIP_224-tr0-kbh_joined_432-0-drq_delta_norm-wait_delta_sclip\"
+
+python plot2.py

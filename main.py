@@ -39,7 +39,7 @@ def parse_arguments():
                         choices=['grid4x4', 'arterial4x4', 'ingolstadt1', 'ingolstadt7', 'ingolstadt21',
                                  'cologne1', 'cologne3', 'cologne8', "kbh_red", "kbh_red_2", "kbh_red_3",
                                  "kbh_red_4", "kbh_red_5","kbh_full", "kbh_full_multimodal", "kbh_full_multimodal_mod",
-                                 "kbh_red_420", "kbh_joined_432", "kbh_red_430", "kbh_single_432", "kbh_j1_441"],
+                                 "kbh_red_420", "kbh_joined_432", "kbh_red_430", "kbh_single_432", "kbh_j1_441", "kbh_j1_442"],
                         help="Specify the traffic network map.")
 
     parser.add_argument("--trials", type=int, default=1, help="Number of trials to run.")

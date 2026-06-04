@@ -422,7 +422,11 @@ mdp_configs = {
         "kbh_j1_441": {
             'norm_wait': 224.0,
             'clip_wait': 4.0,
-        }
+        },
+        "kbh_j1_442": {
+            'norm_wait': 224.0,
+            'clip_wait': 4.0,
+        },
     },
     'IDQN_DELTAVAR': {
         'kbh_joined_432': {

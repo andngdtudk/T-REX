@@ -4,8 +4,8 @@ import re
 import matplotlib.pyplot as plt
 
 # usage:
-# python main.py --agent IDQN_DELTA --map kbh_joined_432 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs\idqn_delta.log 
-# 
+# 1st, python main.py --agent IDQN_DELTA --map kbh_joined_432 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs\idqn_delta.log 
+# then:
 r"""
 Windows (PowerShell):
 python3 plot_idqn_metrics.py `
@@ -20,14 +20,12 @@ python3 plot_idqn_metrics.py `
 
 Linux (bash/zsh):
 python3 plot_idqn_metrics.py \
-    --log logs/logsidqn_deltasclip_224.log \
-    --log logs/logsidqn_deltasclip_55.log \
-    --log logs/logsidqn_deltascale.log \
+    --log logs/idqn_deltasclip.log \
+    --log logs/mplight.log \
     --label IDQN_DELTASClip224 \
-    --label IDQN_DELTASCLIP55 \
-    --label IDQN_DELTASCALE \
+    --label MPLight \
     --plots_dir plots \
-    --prefix idqn_compare
+    --prefix idqn
 """
 STEP_PATTERN = re.compile(r"step\s+(\d+):")
 KV_PATTERN = re.compile(r"([a-zA-Z_]+)=([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)")
