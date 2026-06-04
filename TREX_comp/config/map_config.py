@@ -245,9 +245,9 @@ map_configs = {
         'end_time': 3600,
         'warmup': 0
     },
-    'kbh_j1_441': {
+    'kbh_j1_442': {
         'lights': [],
-        'net': 'environments/kbh_j1_441/kbh_j1_4.4.1.sumocfg',
+        'net': 'environments/kbh_j1_442/kbh_j1_4.4.2.sumocfg',
         'route': None,
         'step_length': 10,
         'yellow_length': 3,
