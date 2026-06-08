@@ -47,25 +47,30 @@ def wait_norm(signals):
     return rewards
 
 def _delta_wait(signals, prev_waits):
-    """Compute raw delta waits and update previous-wait state."""
-    rewards = dict()
-    for signal_id in signals:
-        total_wait = 0.0
-        for lane in signals[signal_id].lanes:
-            total_wait += signals[signal_id].full_observation[lane]['total_wait']
+    """Compute raw delta waits and update previous-wait state.
+
+    Returns
+        rewards : dict[signal_id, float]
+            Positive values mean waiting time decreased (improvement).
+            Zero on the first step for any signal not yet seen.
+    """
+    rewards = {}
+
+    for signal_id, signal in signals.items():
+        total_wait = sum(
+            signal.full_observation[lane].get('total_wait', 0.0)
+            for lane in signal.lanes
+        )
 
         prev_wait = prev_waits.get(signal_id)
-        if prev_wait is None:
-            rewards[signal_id] = 0.0
-        else:
-            rewards[signal_id] = prev_wait - total_wait
+        rewards[signal_id] = 0.0 if prev_wait is None else float(prev_wait - total_wait)
         prev_waits[signal_id] = total_wait
 
-        # Log deltas to CSV for analysis
-        with open('logs/delta_log.csv', 'a') as f:
-            writer = csv.writer(f)
-            for sid, val in rewards.items():
-                writer.writerow([sid, val])
+    # Log all signals in a single pass, one open() per call
+    with open('logs/delta_log.csv', 'a') as f:
+        writer = csv.writer(f)
+        for signal_id, val in rewards.items():
+            writer.writerow([signal_id, val])
 
     return rewards
 
@@ -141,14 +146,15 @@ def wait_delta_sclip(signals):
 
     rewards = _delta_wait(signals, prev_waits)
     for signal_id, value in rewards.items():
-        rewards[signal_id] = np.clip(
-            value / cfg['norm_wait'],
+        rewards[signal_id] = np.float32(
+            np.clip(value / cfg['norm_wait'],
             -cfg['clip_wait'],
             cfg['clip_wait'],
-        ).astype(np.float32)
+            )
+        )
     return rewards
 
-
+# For variance version
 def _get_delta_var_config(config_key, require_clip=False):
     raw = mdp_configs.get(config_key)
     if not isinstance(raw, dict):
@@ -246,6 +252,9 @@ wait_delta_var.reset = _reset_wait_delta_var
 #============================================================================================
 #region Wait multimodal
 
+
+
+# OLD METHODS
 def _resolve_multimodal_wait_config():
     """Resolve config for multimodal waiting-time rewards.
 
