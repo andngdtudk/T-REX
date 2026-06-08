@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-05-13T11:32:10.314028+01:00 by Eclipse SUMO libsumo 1.26.0
+<libsumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/libsumoConfiguration.xsd">
+
+    <input>
+        <net-file value="/home/s243292/pmt/T-REX/environments/kbh_red_430/kbh_red_4.3.0.net.xml"/>
+        <route-files value="/home/s243292/pmt/T-REX/environments/kbh_red_430/routes_car.rou.xml"/>
+        <additional-files value="/home/s243292/pmt/T-REX/environments/kbh_red_430/vtypes.xml"/>
+    </input>
+
+    <output>
+        <tripinfo-output value="/home/s243292/pmt/T-REX/results/MAXPRESSURE-tr0-kbh_red_430-0-mplight-wait/tripinfo_90.xml"/>
+        <tripinfo-output.write-unfinished value="true"/>
+        <personinfo-output value="/home/s243292/pmt/T-REX/results/MAXPRESSURE-tr0-kbh_red_430-0-mplight-wait/personinfo_90.xml"/>
+    </output>
+
+    <time>
+        <begin value="0"/>
+        <end value="3600"/>
+        <step-length value="0.5"/>
+    </time>
+
+    <processing>
+        <lateral-resolution value="0.8"/>
+        <ignore-route-errors value="true"/>
+        <collision.action value="warn"/>
+        <time-to-teleport value="-1"/>
+        <pedestrian.model value="striping"/>
+        <pedestrian.striping.stripe-width value="0.55"/>
+    </processing>
+
+    <routing>
+        <device.rerouting.probability value="0.3"/>
+        <device.rerouting.period value="300"/>
+    </routing>
+
+    <report>
+        <verbose value="true"/>
+        <no-warnings value="True"/>
+        <duration-log.statistics value="False"/>
+        <no-step-log value="True"/>
+    </report>
+
+    <random_number>
+        <random value="true"/>
+    </random_number>
+
+    <gui_only>
+        <quit-on-end value="false"/>
+        <start value="true"/>
+    </gui_only>
+
+</libsumoConfiguration>
+-->
+
+<tripinfos xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/tripinfo_file.xsd">
+</tripinfos>

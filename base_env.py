@@ -6,12 +6,19 @@ import numpy as np
 import traci
 import sumolib
 import gym
-from traffic_signal import Signal
+import traceback
+from traffic_signal import Signal, ensure_map_signal_control_config, export_map_signal_config
+from simulation_summary import (
+    initialize_runtime_counters,
+    update_runtime_counters,
+    finalize_runtime_state,
+    print_grouped_mode_summary,
+)
 
 class BaseEnv(gym.Env):
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False, end_time=3600,
                  step_length=10, yellow_length=4, step_ratio=1, max_distance=200, lights=(), log_dir='/', libsumo=False,
-                 warmup=0, gymma=False, run=0, level=None):
+                 warmup=0, gymma=False, run=0, level=None, max_green_hold_steps=12):
         self.libsumo = libsumo
         self.gymma = gymma  # gymma expects sequential list of states/rewards instead of dict
         print(map_name, net, state_fn.__name__, reward_fn.__name__)
@@ -23,6 +30,7 @@ class BaseEnv(gym.Env):
         self.reward_fn = reward_fn
         self.max_distance = max_distance
         self.warmup = warmup
+        self.max_green_hold_steps = max_green_hold_steps
 
         self.end_time = end_time
         self.step_length = step_length
@@ -30,12 +38,22 @@ class BaseEnv(gym.Env):
         self.step_ratio = step_ratio
         self.connection_name = run_name + '-' + map_name + '---' + state_fn.__name__ + '-' + reward_fn.__name__
         self.map_name = map_name
+        try:
+            self.force_jupedsim = "kbh" in str(map_name)   # Force jupedsim for kbh maps
+        except:
+            self.force_jupedsim = False
+            print("Error checking map name for jupedsim, defaulting to no forced jupedsim. Error was:")
+            traceback.print_exc()
+
+        disable_jupedsim = os.getenv("TREX_DISABLE_JUPEDSIM", "").strip().lower() in {"1", "true", "yes", "on"}
+        if disable_jupedsim:
+            self.force_jupedsim = False
 
         # Run some steps in the simulation with default light configurations to detect phases
         if self.route is not None:
-            sumo_cmd = [sumolib.checkBinary('sumo'), '-n', net, '-r', self.route + '_1.rou.xml', '--no-warnings', 'True']
+            sumo_cmd = [sumolib.checkBinary('sumo'), '-n', net, '-r', self.route + '_1.rou.xml', '--no-warnings', 'True', '--duration-log.statistics', 'False']
         else:
-            sumo_cmd = [sumolib.checkBinary('sumo'), '-c', net, '--no-warnings', 'True']
+            sumo_cmd = [sumolib.checkBinary('sumo'), '-c', net, '--no-warnings', 'True', '--duration-log.statistics', 'False']
         if self.libsumo:
             traci.start(sumo_cmd)
             self.sumo = traci
@@ -55,6 +73,8 @@ class BaseEnv(gym.Env):
             for lightID in self.signal_ids
         }
 
+        ensure_map_signal_control_config(self.map_name, self.phases)
+
 
         self.signals = dict()
 
@@ -67,7 +87,17 @@ class BaseEnv(gym.Env):
         self.observation_space = list()
         self.action_space = list()
         for ts in self.all_ts_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
+        exported_file = export_map_signal_config(self.map_name)
+        if exported_file is not None:
+            print('Generated signal config file:', exported_file)
         for ts in self.all_ts_ids:
             self.signals[ts].signals = self.signals
             self.signals[ts].observe(self.step_length, self.max_distance)
@@ -91,6 +121,7 @@ class BaseEnv(gym.Env):
         self.run = run
         self.metrics = []
         self.wait_metric = dict()
+        self.summary_counters = initialize_runtime_counters()
 
         if not self.libsumo: traci.switch(self.connection_name)
         traci.close()
@@ -104,11 +135,16 @@ class BaseEnv(gym.Env):
         # The monaco scenario expects .25s steps instead of 1s, account for that here.
         for _ in range(self.step_ratio):
             self.sumo.simulationStep()
+            update_runtime_counters(self.sumo, self.summary_counters)
         
     def reset(self):
+        if hasattr(self.reward_fn, 'reset'):
+            self.reward_fn.reset()
         if self.run != 0:
             if not self.libsumo: traci.switch(self.connection_name)
+            self._finalize_current_run_summary()
             traci.close()
+            print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
             self.save_metrics()
         self.metrics = []
 
@@ -127,15 +163,21 @@ class BaseEnv(gym.Env):
             self.sumo_cmd += ['-c', self.net]
         self.sumo_cmd += ['--random', '--time-to-teleport', '-1', '--tripinfo-output',
                           os.path.join(self.log_dir, self.connection_name, 'tripinfo_' + str(self.run) + '.xml'),
+                          '--personinfo-output',
+                          os.path.join(self.log_dir, self.connection_name, 'personinfo_' + str(self.run) + '.xml'),
                           '--tripinfo-output.write-unfinished',
+                          '--duration-log.statistics', 'False',
                           '--no-step-log', 'True',
                           '--no-warnings', 'True']
+        if self.force_jupedsim:
+            self.sumo_cmd += ['--pedestrian.model', 'jupedsim']
         if self.libsumo:
             traci.start(self.sumo_cmd)
             self.sumo = traci
         else:
             traci.start(self.sumo_cmd, label=self.connection_name)
             self.sumo = traci.getConnection(self.connection_name)
+        self.summary_counters = initialize_runtime_counters()
 
         for _ in range(self.warmup):
             self.step_sim()
@@ -147,7 +189,14 @@ class BaseEnv(gym.Env):
             self.signal_ids.append(self.all_ts_ids[i])
 
         for ts in self.signal_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
             self.wait_metric[ts] = 0.0
         for ts in self.signal_ids:
             self.signals[ts].signals = self.signals
@@ -229,7 +278,17 @@ class BaseEnv(gym.Env):
     def render(self, mode='human'):
         pass
 
+    def _finalize_current_run_summary(self):
+        if self.run <= 0:
+            return
+        try:
+            finalize_runtime_state(self.sumo, self.summary_counters)
+        except Exception as exc:
+            print(f'Could not finalize grouped mode summary state: {exc}')
+
     def close(self):
         if not self.libsumo: traci.switch(self.connection_name)
+        self._finalize_current_run_summary()
         traci.close()
+        print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
         self.save_metrics()

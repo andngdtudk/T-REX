@@ -5,6 +5,12 @@ import traci
 import sumolib
 from traffic_signal import Signal
 from T_REX import Initializer, Deployment
+from simulation_summary import (
+    initialize_runtime_counters,
+    update_runtime_counters,
+    finalize_runtime_state,
+    print_grouped_mode_summary,
+)
 
 
 class IncidentEnv(gym.Env):
@@ -12,7 +18,8 @@ class IncidentEnv(gym.Env):
 
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False,
                  end_time=3600, step_length=10, yellow_length=4, step_ratio=1,
-                 max_distance=300, lights=(), log_dir='/', libsumo=False, warmup=100, gymma=False, run=0, level=2):
+                 max_distance=300, lights=(), log_dir='/', libsumo=False, warmup=100, gymma=False, run=0, level=2,
+                 max_green_hold_steps=12):
 
         # === Basic setup ===
         self.run = run
@@ -26,6 +33,7 @@ class IncidentEnv(gym.Env):
         self.state_fn = state_fn
         self.reward_fn = reward_fn
         self.max_distance = max_distance
+        self.max_green_hold_steps = max_green_hold_steps
         self.warmup = warmup
         self.level = level
         self.start_time = 1
@@ -37,10 +45,15 @@ class IncidentEnv(gym.Env):
         self.step_ratio = step_ratio
         self.metrics = []
         self.wait_metric = {}
+        self.summary_counters = initialize_runtime_counters()
         self.sumo_cmd = None
         self.signal_ids = []
 
         self.connection_name = f"{run_name}-{map_name}-{state_fn.__name__}-{reward_fn.__name__}"
+        self.force_jupedsim = map_name in {'kbh_full_multimodal_mod'}
+        disable_jupedsim = os.getenv("TREX_DISABLE_JUPEDSIM", "").strip().lower() in {"1", "true", "yes", "on"}
+        if disable_jupedsim:
+            self.force_jupedsim = False
         self.additional = self._find_additional_file()
         self.scenario_folder = self._find_scenario_folder()
 
@@ -76,20 +89,28 @@ class IncidentEnv(gym.Env):
 
     def _build_sumo_command(self):
         if self.route:
-            return [
+            cmd = [
                 sumolib.checkBinary('sumo'),
                 '-n', self.net,
                 '-r', os.path.join(self.route, f"{self.map_name}_1.rou.xml"),
                 '-a', os.path.join(self.route, "vtypes.add.xml"),
-                '--no-warnings', 'True'
+                '--no-warnings', 'True',
+                '--duration-log.statistics', 'False'
             ]
+            if self.force_jupedsim:
+                cmd += ['--pedestrian.model', 'jupedsim']
+            return cmd
         else:
-            return [
+            cmd = [
                 sumolib.checkBinary('sumo'),
                 '-c', self.net,
                 '-a', self.additional,
-                '--no-warnings', 'True'
+                '--no-warnings', 'True',
+                '--duration-log.statistics', 'False'
             ]
+            if self.force_jupedsim:
+                cmd += ['--pedestrian.model', 'jupedsim']
+            return cmd
 
     def _initialize_sumo(self):
         sumo_cmd = self._build_sumo_command()
@@ -123,7 +144,14 @@ class IncidentEnv(gym.Env):
 
         # Initialize signals and their observations
         for ts in self.all_ts_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
 
         for ts in self.all_ts_ids:
             self.signals[ts].signals = self.signals
@@ -164,18 +192,23 @@ class IncidentEnv(gym.Env):
                 if incident_info.is_incident:
                     incident.sim_incident(self.sim_step, reroute=True)
             self.sumo.simulationStep()
+            update_runtime_counters(self.sumo, self.summary_counters)
             self.sim_step += 1
             self.sim_time += 1
 
     def reset(self, pre_seed=(None, None)):
         """Reset the simulation environment."""
+        if hasattr(self.reward_fn, 'reset'):
+            self.reward_fn.reset()
         self.sim_step = 1
         self.sim_time = 1
 
         if self.run != 0:
             if not self.libsumo:
                 traci.switch(self.connection_name)
+            self._finalize_current_run_summary()
             traci.close()
+            print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
             self.save_metrics()
 
         self.metrics.clear()
@@ -196,10 +229,14 @@ class IncidentEnv(gym.Env):
             '--random',
             '--time-to-teleport', '-1',
             '--tripinfo-output', os.path.join(self.log_dir, self.connection_name, f'tripinfo_{self.run}.xml'),
+            '--personinfo-output', os.path.join(self.log_dir, self.connection_name, f'personinfo_{self.run}.xml'),
             '--tripinfo-output.write-unfinished',
+            '--duration-log.statistics', 'False',
             '--no-step-log', 'True',
             '--no-warnings', 'True'
         ]
+        if self.force_jupedsim:
+            self.sumo_cmd += ['--pedestrian.model', 'jupedsim']
 
         # Restart SUMO
         if self.libsumo:
@@ -208,6 +245,7 @@ class IncidentEnv(gym.Env):
         else:
             traci.start(self.sumo_cmd, label=self.connection_name)
             self.sumo = traci.getConnection(self.connection_name)
+        self.summary_counters = initialize_runtime_counters()
 
         # Reinitialize incidents
         self._initialize_incidents(pre_seed)
@@ -224,7 +262,14 @@ class IncidentEnv(gym.Env):
 
         # Re-initialize controlled signals
         for ts in self.signal_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
             self.wait_metric[ts] = 0.0
 
         for ts in self.signal_ids:
@@ -332,9 +377,19 @@ class IncidentEnv(gym.Env):
         """Render the environment (not implemented)."""
         pass
 
+    def _finalize_current_run_summary(self):
+        if self.run <= 0:
+            return
+        try:
+            finalize_runtime_state(self.sumo, self.summary_counters)
+        except Exception as exc:
+            print(f"Could not finalize grouped mode summary state: {exc}")
+
     def close(self):
         """Properly close SUMO simulation."""
         if not self.libsumo:
             traci.switch(self.connection_name)
+        self._finalize_current_run_summary()
         traci.close()
+        print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
         self.save_metrics()

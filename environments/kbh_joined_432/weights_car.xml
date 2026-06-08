@@ -1,0 +1,31 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<data>
+    <interval id="compass_car_weights" begin="0" end="3600">
+        <edge id="-161663922#0" traveltime="4.017" compassSpeed="10.632" />
+        <edge id="1067190733#0" traveltime="11.420" compassSpeed="3.759" />
+        <edge id="1067190734" traveltime="20.432" compassSpeed="1.731" />
+        <edge id="1067190735#0" traveltime="50.018" compassSpeed="1.079" />
+        <edge id="1356542862#0" traveltime="26.114" compassSpeed="1.239" />
+        <edge id="1356542863" traveltime="5.198" compassSpeed="3.174" />
+        <edge id="1356542864" traveltime="17.833" compassSpeed="1.375" />
+        <edge id="161663922#0" traveltime="6.939" compassSpeed="6.155" />
+        <edge id="229758123" traveltime="16.309" compassSpeed="1.001" />
+        <edge id="24823745#1" traveltime="75.066" compassSpeed="0.566" />
+        <edge id="26165232#0" traveltime="2.645" compassSpeed="8.398" />
+        <edge id="27201302#1.254" traveltime="3.861" compassSpeed="6.777" />
+        <edge id="27201303#2" traveltime="17.070" compassSpeed="6.459" />
+        <edge id="27201304#1" traveltime="38.879" compassSpeed="1.819" />
+        <edge id="366013231#0" traveltime="11.223" compassSpeed="5.237" />
+        <edge id="420039026#0" traveltime="4.744" compassSpeed="5.302" />
+        <edge id="420039027#0" traveltime="19.112" compassSpeed="0.531" />
+        <edge id="420039029#1" traveltime="8.646" compassSpeed="1.789" />
+        <edge id="420039036#0.30" traveltime="37.584" compassSpeed="0.723" />
+        <edge id="420044917#1" traveltime="54.673" compassSpeed="2.316" />
+        <edge id="497264730#0" traveltime="33.471" compassSpeed="0.791" />
+        <edge id="497264733" traveltime="11.243" compassSpeed="2.973" />
+        <edge id="E1" traveltime="56.066" compassSpeed="0.824" />
+        <edge id="E2" traveltime="1.855" compassSpeed="2.451" />
+        <edge id="E4" traveltime="16.818" compassSpeed="0.358" />
+        <edge id="E4.15" traveltime="18.192" compassSpeed="0.358" />
+    </interval>
+</data>

@@ -399,5 +399,40 @@ mdp_configs = {
                 'top_mgr': []
             }
         },
+    },
+    'IDQN_MULTIMODAL': {
+        'kbh_red_420': {
+            'car_wait_weight': 1.0,
+            'bike_wait_weight': 1.0,
+            'ped_wait_weight': 1.0,
+            'norm_wait': 224.0,
+            'clip_wait': 4.0,
+        }
+    },
+    'IDQN_DELTASCALE': {
+        'kbh_joined_432': {
+            'norm_wait': 224.0,
+        }
+    },
+    'IDQN_DELTASCLIP': {
+        'kbh_joined_432': {
+            'norm_wait': 224.0, # 55: 95 percentile of deltas in training logs
+            'clip_wait': 4.0,  #
+        },
+        "kbh_j1_441": {
+            'norm_wait': 224.0,
+            'clip_wait': 4.0,
+        },
+        "kbh_j1_442": {
+            'norm_wait': 224.0,
+            'clip_wait': 4.0,
+        },
+    },
+    'IDQN_DELTAVAR': {
+        'kbh_joined_432': {
+            'norm_wait': 224.0,
+            'clip_wait': 4.0,
+            'lambda_f': 0.5,
+        }
     }
 }

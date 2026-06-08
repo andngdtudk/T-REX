@@ -1,0 +1,33 @@
+echo 'export LIBSUMO_AS_TRACI=1' >> ~/.bashrc
+source ~/.bashrc
+
+source pmt/bin/activate
+
+python -c "
+import site, os
+sp = site.getsitepackages()[0]
+nvidia = os.path.join(sp, 'nvidia')
+libs = [os.path.join(nvidia, d, 'lib') for d in os.listdir(nvidia) if os.path.isdir(os.path.join(nvidia, d, 'lib'))]
+print('export LD_LIBRARY_PATH=' + ':'.join(libs) + ':\$LD_LIBRARY_PATH')
+" >> ~/.bashrc
+source ~/.bashrc
+
+
+source pmt/bin/activate
+
+export TREX_DISABLE_JUPEDSIM=1
+
+en linux
+python3 main.py --agent IDQN --map kbh_red_420 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | tee logs\idqn.log 
+
+en win
+$env:LIBSUMO_AS_TRACI = "1" 
+New-Item -ItemType Directory -Path logs -Force
+python main.py --agent IDQN --map kbh_red_420 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs/idqn.log 
+
+LOAD CON GUI:
+Remove-Item Env:LIBSUMO_AS_TRACI
+Get-ChildItem Env:LIBSUMO_AS_TRACI
+python main.py --agent IDQN_DELTASCLIP --map kbh_joined_432 --load True --eps 1 --gui True --no-libsumo --strategy 1 --load_dir "results\IDQN_DELTASCLIP_224-tr0-kbh_joined_432-0-drq_delta_norm-wait_delta_sclip\"
+
+python plot2.py

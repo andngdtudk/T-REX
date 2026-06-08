@@ -80,7 +80,9 @@ class FRAP(nn.Module):
         # Expand action index to mark demand input indices
         extended_acts = []
         for i in range(batch_size):
-            act_idx = acts[i]
+            act_idx = int(acts[i].item())
+            if act_idx < 0 or act_idx >= len(self.phase_pairs):
+                act_idx = act_idx % len(self.phase_pairs)
             pair = self.phase_pairs[act_idx]
             zeros = torch.zeros(num_movements, dtype=torch.int64, device=self.device)
             zeros[pair[0]] = 1

@@ -15,7 +15,8 @@ map_title = {
     'ingolstadt21': 'Ingolstadt Region',
     'cologne1': 'Cologne Single Signal',
     'cologne3': 'Cologne Corridor',
-    'cologne8': 'Cologne Region'
+    'cologne8': 'Cologne Region',
+    "kbh_red_420": "Copenhagen reduced 4.2.0"
 }
 
 alg_name = {
@@ -25,6 +26,7 @@ alg_name = {
     'MAXPRESSURE': 'Max Pressure',
     'FULLMAXPRESSURE': 'Max Pressure w/ All phases',
     'IDQN': 'IDQN',
+    "IDQN_MULTIMODAL": 'IDQN Multimodal',
     'MPLight': 'MPLight',
     'MPLightFULL': 'Full State MPLight',
     'FMA2C': 'FMA2C',
@@ -72,6 +74,12 @@ chart = {
         'Avg. Queue': [],
         'Avg. Trip Time': []
     },
+    'IDQN Multimodal': {
+        'Avg. Delay': [],
+        'Avg. Wait': [],
+        'Avg. Queue': [],
+        'Avg. Trip Time': []
+    }
 }
 
 for met_i, metric in enumerate(metrics):
@@ -159,18 +167,22 @@ for met_i, metric in enumerate(metrics):
                     plt.plot(x, y, label=alg_name[alg])
                     plt.fill_between([], [], [])  # Advance color cycle
 
-        points = np.asarray([0, 20, 40, 60, 80, 100, num_episodes])
-        labels = ('0', '20', '40', '60', '80', '100', '..1400')
+        points = np.asarray([0, 20, 40, 60, 80, 100])
+        labels = ('0', '20', '40', '60', '80', '100')
         plt.yticks(fontsize=fs)
         plt.xticks(points, labels, fontsize=fs)
-        #plt.xlabel('Episode', fontsize=32)
-        #plt.ylabel('Delay (s)', fontsize=32)
+        plt.xlabel('Episode', fontsize=fs)
+        plt.ylabel(metrics_str[met_i], fontsize=fs)
         plt.title(map_title[map], fontsize=fs)
-        #plt.legend(prop={'size': 25})
+        plt.legend(prop={'size': fs - 2})
         bot, top = plt.ylim()
         if bot < 0: bot = 0
         plt.ylim(bot, dqn_max)
         plt.show()
+
+        # Save the plots in the /plots dir
+        plt.savefig('plots/{}_{}.pdf'.format(map, metrics_str[met_i].split('.')[1]), bbox_inches='tight')
+        plt.clf()
 
 for alg in chart:
     print(alg)

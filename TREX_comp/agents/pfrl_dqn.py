@@ -11,7 +11,25 @@ from pfrl.agents import DQN
 from pfrl.q_functions import DiscreteActionValueHead
 from pfrl.utils.contexts import evaluating
 
-from TREX_comp.agents.agent import IndependentAgent, Agent
+from TREX_comp.agents.agent import IndependentAgent, Agent, _safe_model_path
+
+
+def _stats_to_dict(stats):
+    if not stats:
+        return {}
+    if isinstance(stats, dict):
+        return stats
+    return {name: value for name, value in stats}
+
+
+def _entropy_from_q_values(q_values):
+    q_values = np.asarray(q_values, dtype=np.float64)
+    if q_values.size == 0:
+        return float("nan")
+    shifted = q_values - np.max(q_values)
+    exp_vals = np.exp(shifted)
+    probs = exp_vals / np.sum(exp_vals)
+    return float(-np.sum(probs * np.log(probs + 1e-12)))
 
 
 class IDQN(IndependentAgent):
@@ -21,17 +39,11 @@ class IDQN(IndependentAgent):
             obs_space = obs_act[key][0]
             act_space = obs_act[key][1]
 
-            def conv2d_size_out(size, kernel_size=2, stride=1):
-                return (size - (kernel_size - 1) - 1) // stride + 1
-
-            h = conv2d_size_out(obs_space[1])
-            w = conv2d_size_out(obs_space[2])
-
             model = nn.Sequential(
                 nn.Conv2d(obs_space[0], 64, kernel_size=(2, 2)),
                 nn.ReLU(),
                 nn.Flatten(),
-                nn.Linear(h * w * 64, 64),
+                nn.LazyLinear(64),
                 nn.ReLU(),
                 nn.Linear(64, 64),
                 nn.ReLU(),
@@ -42,8 +54,44 @@ class IDQN(IndependentAgent):
             self.agents[key] = DQNAgent(config, act_space, model, lr=lr)
             if self.config['load']:
                 print('LOADING SAVED MODEL FOR EVALUATION')
-                self.agents[key].load(self.config['log_dir']+'agent_'+key+'.pt')
+                load_dir = self.config.get('load_dir', self.config['log_dir'])
+                load_path = _safe_model_path(load_dir, key) + '.pt'
+                self.agents[key].load(load_path)
                 self.agents[key].agent.training = False
+
+    def step_metrics(self, observation):
+        q_means = []
+        q_maxes = []
+        q_mins = []
+        entropies = []
+        for agent_id, obs in observation.items():
+            q_values = self.agents[agent_id].q_values(obs)
+            q_means.append(float(np.mean(q_values)))
+            q_maxes.append(float(np.max(q_values)))
+            q_mins.append(float(np.min(q_values)))
+            entropies.append(_entropy_from_q_values(q_values))
+
+        if not q_means:
+            return {}
+
+        return {
+            "q_mean": float(np.mean(q_means)),
+            "q_max": float(np.max(q_maxes)),
+            "q_min": float(np.min(q_mins)),
+            "action_entropy": float(np.mean(entropies)),
+        }
+
+    def training_stats(self):
+        stats = {}
+        values = {}
+        for agent in self.agents.values():
+            agent_stats = agent.last_statistics
+            for key, value in agent_stats.items():
+                values.setdefault(key, []).append(value)
+
+        for key, vals in values.items():
+            stats[key] = float(np.mean(vals))
+        return stats
 
 
 class DQNAgent(Agent):
@@ -53,6 +101,7 @@ class DQNAgent(Agent):
         self.model = model
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         replay_buffer = replay_buffers.ReplayBuffer(10000)
+        self.last_statistics = {}
 
         if num_agents > 0:
             explorer = SharedEpsGreedy(
@@ -94,6 +143,8 @@ class DQNAgent(Agent):
             self.agent.observe(observation, reward, done, info)
         else:
             self.agent.observe(observation, reward, done, False)
+        if hasattr(self.agent, "get_statistics"):
+            self.last_statistics = _stats_to_dict(self.agent.get_statistics())
 
     def save(self, path):
         torch.save({
@@ -104,6 +155,21 @@ class DQNAgent(Agent):
     def load(self, path):
         self.model.load_state_dict(torch.load(path)['model_state_dict'])
         self.optimizer.load_state_dict(torch.load(path)['optimizer_state_dict'])
+
+    def q_values(self, observation):
+        obs = np.asarray(observation, dtype=np.float32)
+        if obs.ndim == 3:
+            obs = obs[None, ...]
+        with torch.no_grad(), evaluating(self.model):
+            tensor_obs = torch.as_tensor(obs, device=self.device)
+            q_out = self.model(tensor_obs)
+            if hasattr(q_out, "q_values"):
+                q_vals = q_out.q_values
+            elif hasattr(q_out, "params"):
+                q_vals = q_out.params[0]
+            else:
+                q_vals = q_out
+        return q_vals.detach().cpu().numpy()[0]
 
 
 class SharedDQN(DQN):

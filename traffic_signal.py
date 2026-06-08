@@ -1,6 +1,8 @@
+import os
 import traci
 import copy
-import re
+from pathlib import Path
+from pprint import pformat
 from TREX_comp.config.signal_config import signal_configs
 
 
@@ -24,12 +26,102 @@ def create_yellows(phases, yellow_length):
     return new_phases, yellow_dict
 
 
+def ensure_map_signal_control_config(map_name, phases_by_signal):
+    cfg = signal_configs.setdefault(map_name, {})
+    if 'phase_pairs' in cfg and 'valid_acts' in cfg:
+        return
+
+    phase_pairs, valid_acts = infer_phase_pairs_and_valid_acts(phases_by_signal)
+    cfg['phase_pairs'] = phase_pairs
+    cfg['valid_acts'] = valid_acts
+
+    # Emit copy-pasteable config snippet in the same style used in signal_config.py.
+    print('GENERATED MAP CONTROL CONFIG')
+    print("'" + map_name + "': {")
+    print("'phase_pairs':" + str(phase_pairs) + ',')
+    print("'valid_acts':" + str(valid_acts) + ',')
+    print('},')
+
+
+def export_map_signal_config(map_name):
+    cfg = signal_configs.get(map_name)
+    if cfg is None:
+        return None
+
+    if 'phase_pairs' not in cfg or 'valid_acts' not in cfg:
+        return None
+
+    out_dir = Path(__file__).resolve().parent / 'TREX_comp' / 'config' / 'generated'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f'{map_name}_signal_config.py'
+
+    # Keep key order so output resembles the hand-written format in signal_config.py.
+    map_block = {map_name: cfg}
+    content = (
+        '# Auto-generated signal config block\n'
+        '# Paste the map entry into TREX_comp/config/signal_config.py if desired.\n\n'
+        + pformat(map_block, sort_dicts=False, width=120)
+    )
+    out_file.write_text(content, encoding='utf-8')
+    return str(out_file)
+
+
+def infer_phase_pairs_and_valid_acts(phases_by_signal):
+    phase_pairs = []
+    valid_acts = {}
+
+    for signal_id, phases in phases_by_signal.items():
+        signal_valid = {}
+        for local_phase_idx, phase in enumerate(phases):
+            pair = infer_phase_pair_from_state(phase.state)
+            # Keep one phase-pair entry per local phase to avoid collisions
+            # when two phases map to the same inferred movement pair.
+            phase_pairs.append(pair)
+            pair_index = len(phase_pairs) - 1
+            signal_valid[pair_index] = local_phase_idx
+        valid_acts[signal_id] = signal_valid
+
+    return phase_pairs, valid_acts
+
+
+def infer_phase_pair_from_state(state):
+    active_movements = []
+    # Link-state strings are ordered by controlled-link index, but the number of
+    # links per junction can vary widely. Bucket the full state into 12 bins so
+    # every green bit contributes to one movement index used by MPLight/MAXPRESSURE.
+    state_len = max(1, len(state))
+    for idx, sig_state in enumerate(state):
+        movement = min(11, int((idx * 12) / state_len))
+        if sig_state == 'g' or sig_state == 'G':
+            active_movements.append(movement)
+
+    if len(active_movements) == 0:
+        return [0, 1]
+
+    # Rank movements by how many green links they control in this phase.
+    counts = {}
+    for movement in active_movements:
+        counts[movement] = counts.get(movement, 0) + 1
+
+    ranked = sorted(counts.keys(), key=lambda movement: (-counts[movement], movement))
+    if len(ranked) == 1:
+        return [ranked[0], ranked[0]]
+    return [ranked[0], ranked[1]]
+
+
 class Signal:
-    def __init__(self, map_name, sumo, id, yellow_length, phases):
+    def __init__(self, map_name, sumo, id, yellow_length, phases, max_green_hold_steps=12):
+        self.map_name = map_name
         self.sumo = sumo
         self.id = id
         self.yellow_time = yellow_length
         self.next_phase = 0
+        self.num_green_phases = len(phases)
+        if max_green_hold_steps is None:
+            self.max_green_hold_steps = None
+        else:
+            self.max_green_hold_steps = max(1, int(max_green_hold_steps))
+        self._same_green_decisions = 0
 
         links = self.sumo.trafficlight.getControlledLinks(self.id)
         lanes = []
@@ -90,78 +182,132 @@ class Signal:
 
         self.waiting_times = dict()     # SUMO's WaitingTime and AccumulatedWaiting are both wrong for multiple signals
 
-        self.phases, self.yellow_dict = create_yellows(phases, yellow_length)
+        # Libsumo can become unstable when program logic is rewritten repeatedly
+        # across resets. Keep native programs under libsumo and apply direct phase
+        # switches only; preserve legacy yellow-program behavior for traci.
+        use_libsumo_as_traci = bool(os.environ.get('LIBSUMO_AS_TRACI'))
+        if use_libsumo_as_traci:
+            self.phases = phases
+            self.yellow_dict = {}
+        else:
+            self.phases, self.yellow_dict = create_yellows(phases, yellow_length)
 
-        # logic = self.sumo.trafficlight.Logic(id, 0, 0, phases=self.phases) # not compatible with libsumo
-        programs = self.sumo.trafficlight.getAllProgramLogics(self.id)
-        logic = programs[0]
-        logic.type = 0
-        logic.phases = self.phases
-        self.sumo.trafficlight.setProgramLogic(self.id, logic)
+            # logic = self.sumo.trafficlight.Logic(id, 0, 0, phases=self.phases) # not compatible with libsumo
+            programs = self.sumo.trafficlight.getAllProgramLogics(self.id)
+            logic = programs[0]
+            logic.type = 0
+            logic.phases = self.phases
+            self.sumo.trafficlight.setProgramLogic(self.id, logic)
 
         self.signals = None     # Used to allow signal sharing
         self.full_observation = None
         self.last_step_vehicles = None
+
+    def _build_inbound_lane_to_signal_map(self):
+        lane_to_signal = {}
+        for signal_id in self.sumo.trafficlight.getIDList():
+            for link_group in self.sumo.trafficlight.getControlledLinks(signal_id):
+                if len(link_group) == 0:
+                    continue
+                for link in link_group:
+                    inbound_lane = link[0]
+                    if inbound_lane.startswith(':'):
+                        continue
+                    if inbound_lane not in lane_to_signal:
+                        lane_to_signal[inbound_lane] = signal_id
+        return lane_to_signal
+
+    def _infer_downstream_signal(self, links, inbound_lanes, lane_to_signal):
+        if inbound_lanes is None or len(inbound_lanes) == 0:
+            return None
+
+        for link_group in links:
+            if len(link_group) == 0:
+                continue
+            for link in link_group:
+                in_lane, out_lane = link[0], link[1]
+                if in_lane.startswith(':') or out_lane.startswith(':'):
+                    continue
+                if in_lane not in inbound_lanes:
+                    continue
+
+                downstream_signal = lane_to_signal.get(out_lane)
+                if downstream_signal is not None and downstream_signal != self.id:
+                    return downstream_signal
+
+        return None
 
     def generate_config(self):
         print('GENERATING CONFIG')
         # TODO raise Exception('Invalid signal config')
         index_to_movement = {0: 'S-W', 1: 'S-S', 2: 'S-E', 3: 'W-N', 4: 'W-W', 5: 'W-S', 6: 'N-E',
                              7: 'N-N', 8: 'N-W', 9: 'E-S', 10: 'E-E', 11: 'E-N'}
+        reversed_directions = {'N': 'S', 'E': 'W', 'S': 'N', 'W': 'E'}
         self.lane_sets = {}
         for idx, movement in index_to_movement.items():
             self.lane_sets[movement] = []
-        self.lane_sets_outbound = {}
+        self.lane_sets_outbound = {movement: [] for movement in index_to_movement.values()}
         self.downstream = {'N': None, 'E': None, 'S': None, 'W': None}
 
         links = self.sumo.trafficlight.getControlledLinks(self.id)
-        #print(self.id, links)
-        for i, link in enumerate(links):
-            link = link[0]  # unpack so link[0] is inbound, link[1] outbound
-            if link[0] not in self.lanes: self.lanes.append(link[0])
+        for i, link_group in enumerate(links):
+            if len(link_group) == 0:
+                continue
+
+            # Prefer external inbound lanes; internal connector lanes (':...')
+            # should not be used as approach detectors.
+            inbound_lanes = []
+            for link in link_group:
+                if link[0].startswith(':'):
+                    continue
+                if link[0] not in inbound_lanes:
+                    inbound_lanes.append(link[0])
+            if not inbound_lanes:
+                continue
+
+            for lane_id in inbound_lanes:
+                if lane_id not in self.lanes:
+                    self.lanes.append(lane_id)
             # Group of lanes constituting a direction of traffic
-            if i % 3 == 0:
-                index = int(i/3)
-                self.lane_sets[index_to_movement[index]].append(link[0])
-        #print(self.id, self.lane_sets)
-        """split = self.lane_sets['S-W'][0].split('_')[0]
-        if 'np' not in split: self.downstream['N'] = split
-        split = self.lane_sets['W-N'][0].split('_')[0]
-        if 'np' not in split: self.downstream['E'] = split
-        split = self.lane_sets['N-E'][0].split('_')[0]
-        if 'np' not in split: self.downstream['S'] = split
-        split = self.lane_sets['E-S'][0].split('_')[0]
-        if 'np' not in split: self.downstream['W'] = split"""
-        lane = self.lane_sets['S-S'][0]
-        fr_sig = re.findall('[a-zA-Z]+[0-9]+', lane)[0]
-        fringes, isfringe = ['top', 'right', 'left', 'bottom'], False
-        for fringe in fringes:
-            if fringe in fr_sig: isfringe = True
-        if not isfringe: self.downstream['N'] = fr_sig
+            # right, left, straight
+            index = int(i / 3)
+            if index in index_to_movement:
+                movement = index_to_movement[index]
+                for lane_id in inbound_lanes:
+                    if lane_id not in self.lane_sets[movement]:
+                        self.lane_sets[movement].append(lane_id)
 
-        lane = self.lane_sets['N-N'][0]
-        fr_sig = re.findall('[a-zA-Z]+[0-9]+', lane)[0]
-        fringes, isfringe = ['top', 'right', 'left', 'bottom'], False
-        for fringe in fringes:
-            if fringe in fr_sig: isfringe = True
-        if not isfringe: self.downstream['S'] = fr_sig
+        # Build inbound lanes grouped by the direction they come from.
+        self.inbounds_fr_direction = {}
+        for direction in self.lane_sets:
+            for lane in self.lane_sets[direction]:
+                inbound_to_direction = direction.split('-')[0]
+                inbound_fr_direction = reversed_directions[inbound_to_direction]
+                if inbound_fr_direction in self.inbounds_fr_direction:
+                    dir_lanes = self.inbounds_fr_direction[inbound_fr_direction]
+                    if lane not in dir_lanes:
+                        dir_lanes.append(lane)
+                else:
+                    self.inbounds_fr_direction[inbound_fr_direction] = [lane]
 
-        lane = self.lane_sets['W-W'][0]
-        fr_sig = re.findall('[a-zA-Z]+[0-9]+', lane)[0]
-        fringes, isfringe = ['top', 'right', 'left', 'bottom'], False
-        for fringe in fringes:
-            if fringe in fr_sig: isfringe = True
-        if not isfringe: self.downstream['E'] = fr_sig
+        # Infer downstream intersections from outbound lanes of straight movements.
+        lane_to_signal = self._build_inbound_lane_to_signal_map()
+        self.downstream['N'] = self._infer_downstream_signal(links, self.lane_sets['S-S'], lane_to_signal)
+        self.downstream['S'] = self._infer_downstream_signal(links, self.lane_sets['N-N'], lane_to_signal)
+        self.downstream['E'] = self._infer_downstream_signal(links, self.lane_sets['W-W'], lane_to_signal)
+        self.downstream['W'] = self._infer_downstream_signal(links, self.lane_sets['E-E'], lane_to_signal)
 
-        lane = self.lane_sets['E-E'][0]
-        fr_sig = re.findall('[a-zA-Z]+[0-9]+', lane)[0]
-        fringes, isfringe = ['top', 'right', 'left', 'bottom'], False
-        for fringe in fringes:
-            if fringe in fr_sig: isfringe = True
-        if not isfringe: self.downstream['W'] = fr_sig
         print("'"+self.id+"'"+": {")
         print("'lane_sets':"+str(self.lane_sets)+',')
         print("'downstream':"+str(self.downstream)+'},')
+
+        # Cache generated signal configuration in-memory so later resets can reuse it.
+        map_config = signal_configs.get(self.map_name)
+        if map_config is not None:
+            map_config[self.id] = {
+                'lane_sets': self.lane_sets,
+                'downstream': self.downstream
+            }
 
         # print(self.id)
         # print(self.sumo.trafficlight.getControlledLinks(self.id))
@@ -174,11 +320,26 @@ class Signal:
         return self.sumo.trafficlight.getPhase(self.id)
 
     def prep_phase(self, new_phase):
-        if self.phase == new_phase:
-            self.next_phase = self.phase
+        current_phase = int(self.phase)
+        requested_phase = int(new_phase)
+
+        # Guard against long-term starvation by forcing a phase change when
+        # the same green phase has been repeatedly held for too long.
+        if self.max_green_hold_steps is not None and self.num_green_phases > 1:
+            if current_phase == requested_phase:
+                self._same_green_decisions += 1
+            else:
+                self._same_green_decisions = 0
+
+            if self._same_green_decisions >= self.max_green_hold_steps:
+                requested_phase = (current_phase + 1) % self.num_green_phases
+                self._same_green_decisions = 0
+
+        if current_phase == requested_phase:
+            self.next_phase = current_phase
         else:
-            self.next_phase = new_phase
-            key = str(self.phase) + '_' + str(new_phase)
+            self.next_phase = requested_phase
+            key = str(current_phase) + '_' + str(requested_phase)
             if key in self.yellow_dict:
                 yel_idx = self.yellow_dict[key]
                 self.sumo.trafficlight.setPhase(self.id, yel_idx)  # turns yellow
@@ -186,12 +347,103 @@ class Signal:
     def set_phase(self):
         self.sumo.trafficlight.setPhase(self.id, int(self.next_phase))
 
+    def _is_bike_vehicle(self, vehicle_id, vehicle_type):
+        vehicle_class = self.sumo.vehicle.getVehicleClass(vehicle_id)
+        if vehicle_class == 'bicycle':
+            return True
+
+        lowered_type = vehicle_type.lower()
+        return 'bike' in lowered_type or 'bicycle' in lowered_type or 'cycle' in lowered_type
+
+    def _get_controlled_edges(self):
+        """Get the set of edges controlled by this signal so we can use them for pedestrian detection."""
+        controlled_edges = set()
+        links = self.sumo.trafficlight.getControlledLinks(self.id)
+        for link_group in links:
+            if len(link_group) == 0:
+                continue
+            for link in link_group:
+                if len(link) < 2:
+                    continue
+                in_lane = link[0]
+                out_lane = link[1]
+                for lane_id in (in_lane, out_lane):
+                    if lane_id is None or lane_id == '':
+                        continue
+                    try:
+                        controlled_edges.add(self.sumo.lane.getEdgeID(lane_id))
+                    except Exception as e:
+                        print ("Error getting edge for lane {}: {}".format(lane_id, str(e)))
+                        raise e
+        return controlled_edges
+
+    def _collect_pedestrian_measures(self, controlled_edges):
+        """Collect pedestrian-related measures for the given set of controlled edges."""
+        person_ids = set()
+        for edge_id in controlled_edges:
+            try:
+                edge_person_ids = self.sumo.edge.getLastStepPersonIDs(edge_id)
+            except Exception as e:
+                print ("Error getting person IDs for edge {}: {}".format(edge_id, str(e)))
+                raise e
+            
+            for person_id in edge_person_ids:
+                person_ids.add(person_id)
+
+        ped_waiting = 0
+        ped_total_wait = 0.0
+        ped_max_wait = 0.0
+        ped_approaching_crossing = 0
+        ped_leaving_intersection = 0
+
+        for person_id in person_ids:
+            try:
+                waiting_time = self.sumo.person.getWaitingTime(person_id)
+            except Exception as e:
+                print ("Error getting waiting time for person {}: {}".format(person_id, str(e)))
+                waiting_time = 0.0
+
+            if waiting_time > 0:
+                ped_waiting += 1
+                ped_total_wait += waiting_time
+                if waiting_time > ped_max_wait:
+                    ped_max_wait = waiting_time
+
+            try:
+                next_edge = self.sumo.person.getNextEdge(person_id)
+            except Exception:
+                next_edge = None
+
+            if next_edge in controlled_edges:
+                ped_approaching_crossing += 1
+            else:
+                ped_leaving_intersection += 1
+
+        return {
+            'ped_ids': person_ids,
+            'ped_count': len(person_ids),
+            'ped_waiting': ped_waiting,
+            'ped_total_wait': ped_total_wait,
+            'ped_max_wait': ped_max_wait,
+            'ped_approaching_crossing': ped_approaching_crossing,
+            'ped_leaving_intersection': ped_leaving_intersection,
+        }
+
     def observe(self, step_length, distance):
         full_observation = dict()
         all_vehicles = set()
+        controlled_edges = self._get_controlled_edges()
         for lane in self.lanes:
             vehicles = []
-            lane_measures = {'queue': 0, 'approach': 0, 'total_wait': 0, 'max_wait': 0}
+            lane_measures = {
+                'queue': 0,
+                'approach': 0,
+                'total_wait': 0,
+                'max_wait': 0,
+                'bike_queue': 0,
+                'bike_total_wait': 0,
+                'bike_max_wait': 0,
+            }
             lane_vehicles = self.get_vehicles(lane, distance)
             for vehicle in lane_vehicles:
                 all_vehicles.add(vehicle)
@@ -208,16 +460,26 @@ class Signal:
                 vehicle_measures['acceleration'] = self.sumo.vehicle.getAcceleration(vehicle)
                 vehicle_measures['position'] = self.sumo.vehicle.getLanePosition(vehicle)
                 vehicle_measures['type'] = self.sumo.vehicle.getTypeID(vehicle)
+                vehicle_measures['is_bike'] = self._is_bike_vehicle(vehicle, vehicle_measures['type'])
                 vehicles.append(vehicle_measures)
                 if vehicle_measures['wait'] > 0:
                     lane_measures['total_wait'] = lane_measures['total_wait'] + vehicle_measures['wait']
                     lane_measures['queue'] = lane_measures['queue'] + 1
                     if vehicle_measures['wait'] > lane_measures['max_wait']:
                         lane_measures['max_wait'] = vehicle_measures['wait']
+
+                    if vehicle_measures['is_bike']:
+                        lane_measures['bike_total_wait'] = lane_measures['bike_total_wait'] + vehicle_measures['wait']
+                        lane_measures['bike_queue'] = lane_measures['bike_queue'] + 1
+                        if vehicle_measures['wait'] > lane_measures['bike_max_wait']:
+                            lane_measures['bike_max_wait'] = vehicle_measures['wait']
                 else:
                     lane_measures['approach'] = lane_measures['approach'] + 1
             lane_measures['vehicles'] = vehicles
             full_observation[lane] = lane_measures
+        
+        # Collect pedestrian measures now, as these are not lane based
+        full_observation.update(self._collect_pedestrian_measures(controlled_edges))
 
         full_observation['num_vehicles'] = all_vehicles
         if self.last_step_vehicles is None:

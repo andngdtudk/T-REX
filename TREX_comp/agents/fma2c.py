@@ -1,4 +1,8 @@
 import numpy as np
+import re
+import os
+
+os.environ.setdefault('TF_ENABLE_ONEDNN_OPTS', '0')
 
 from TREX_comp.config.signal_config import signal_configs
 from TREX_comp.agents.agent import Agent
@@ -20,6 +24,14 @@ if tf is None:
             raise EnvironmentError("Install optional tensorflow requirement for FMA2C")
 
 else:
+
+    def _tf_safe_name(raw_name):
+        safe = re.sub(r'[^A-Za-z0-9_.\/>-]', '_', str(raw_name))
+        if not safe:
+            return 'agent'
+        if not re.match(r'^[A-Za-z0-9.]', safe[0]):
+            safe = 'a_' + safe
+        return safe
 
     class FMA2C(Agent):
         def __init__(self, config, obs_act, map_name, thread_number):
@@ -49,8 +61,9 @@ else:
                 mgr_act_size = self.config['management_acts']
                 mgr_fingerprint_size = len(self.management_neighbors[manager]) * mgr_act_size
                 # print(obs_act)
+                manager_name = _tf_safe_name(manager + str(thread_number))
                 self.managers[manager] = MA2CAgent(config, obs_act[manager][0], mgr_act_size, mgr_fingerprint_size, 0,
-                                                   manager + str(thread_number), self.sess)
+                                                   manager_name, self.sess)
 
                 for worker_id in worker_ids:
                     # Get fingerprint size
@@ -73,8 +86,9 @@ else:
 
                     observation_shape = (obs_act[worker_id][0][0] + management_size,)
                     num_actions = obs_act[worker_id][1]
+                    worker_name = _tf_safe_name(worker_id + str(thread_number))
                     self.workers[worker_id] = MA2CAgent(config, observation_shape, num_actions, fp_size, waits_len,
-                                                        worker_id + str(thread_number), self.sess)
+                                                        worker_name, self.sess)
 
             self.saver = tf.train.Saver(max_to_keep=1)
             self.sess.run(tf.global_variables_initializer())
