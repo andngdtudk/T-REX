@@ -252,7 +252,117 @@ wait_delta_var.reset = _reset_wait_delta_var
 #============================================================================================
 #region Wait multimodal
 
+def _resolve_multimodal_delta_config():
+    """Resolve config for multimodal delta waiting-time rewards (IDQN_MM2).
 
+    Lookup order:
+        1. mdp_configs['IDQN_MM2']
+        2. mdp_configs['IDQN_DELTASCLIP']
+        3. Hard-coded defaults
+
+    Required keys: norm_wait, clip_wait, car_wait_weight, bike_wait_weight, ped_wait_weight
+    """
+    defaults = {
+        'car_wait_weight': 1.0,
+        'bike_wait_weight': 1.0,
+        'ped_wait_weight': 1.0,
+        'norm_wait': 224.0,
+        'clip_wait': 4.0,
+    }
+
+    for key in ('IDQN_MM2', 'IDQN_DELTASCLIP', 'IDQN_MULTIMODAL', 'IDQN'):
+        raw = mdp_configs.get(key)
+        if not isinstance(raw, dict):
+            continue
+        has_modal_weights = all(
+            k in raw for k in ('car_wait_weight', 'bike_wait_weight', 'ped_wait_weight')
+        )
+        has_delta_params = 'norm_wait' in raw and 'clip_wait' in raw
+        if has_modal_weights and has_delta_params:
+            cfg = defaults.copy()
+            cfg.update(raw)
+            return cfg
+
+    return defaults
+
+
+def wait_multimodal_delta_sclip(signals):
+    """Scaled + clipped delta of weighted multimodal wait reward (IDQN_MM2).
+
+    Computes the *change* in combined waiting time per signal between the
+    current and previous step, then normalises and clips:
+
+        combined_wait(t) =
+            car_wait_weight  * car_wait(t)
+            + bike_wait_weight  * bike_wait(t)
+            + ped_wait_weight  * ped_wait(t)
+
+        reward = clip(
+            -(combined_wait(t) - combined_wait(t-1)) / norm_wait,
+            -clip_wait,
+            +clip_wait,
+        )
+
+    A positive reward means the combined wait *decreased* (improvement).
+
+    Wait components:
+        car_wait  — sum over lanes of max(0, total_wait - bike_total_wait)
+        bike_wait — sum over lanes of bike_total_wait
+        ped_wait  — signal-level ped_total_wait
+
+    Config source (first match wins):
+        mdp_configs['IDQN_MM2']
+        mdp_configs['IDQN_DELTASCLIP']
+        mdp_configs['IDQN_MULTIMODAL']
+        mdp_configs['IDQN']
+        hard-coded defaults (norm_wait=224.0, clip_wait=4.0, all weights=1.0)
+    """
+    cfg = _resolve_multimodal_delta_config()
+
+    # --- initialise / validate persistent wait store ---
+    prev_waits = getattr(wait_multimodal_delta_sclip, '_prev_waits', None)
+    signal_ids = set(signals.keys())
+    if prev_waits is None or set(prev_waits.keys()) != signal_ids:
+        prev_waits = {}
+        wait_multimodal_delta_sclip._prev_waits = prev_waits
+
+    # --- compute current combined waits ---
+    rewards = {}
+    next_prev_waits = {}
+
+    for signal_id, signal in signals.items():
+        car_wait = 0.0
+        bike_wait = 0.0
+        for lane in signal.lanes:
+            lane_wait = float(signal.full_observation[lane].get('total_wait', 0.0))
+            lane_bike_wait = float(signal.full_observation[lane].get('bike_total_wait', 0.0))
+            bike_wait += lane_bike_wait
+            car_wait += max(0.0, lane_wait - lane_bike_wait)
+
+        ped_wait = float(signal.full_observation.get('ped_total_wait', 0.0))
+
+        combined_wait = (
+            cfg['car_wait_weight'] * car_wait
+            + cfg['bike_wait_weight'] * bike_wait
+            + cfg['ped_wait_weight'] * ped_wait
+        )
+        next_prev_waits[signal_id] = combined_wait
+
+        # On the very first step there is no previous wait, so reward is 0.
+        prev_combined = prev_waits.get(signal_id, combined_wait)
+        delta = combined_wait - prev_combined  # positive = got worse
+
+        rewards[signal_id] = np.float32(
+            np.clip(-delta / cfg['norm_wait'], -cfg['clip_wait'], cfg['clip_wait'])
+        )
+
+    wait_multimodal_delta_sclip._prev_waits = next_prev_waits
+    return rewards
+
+
+def _reset_wait_multimodal_delta_sclip():
+    """Reset persistent state between episodes."""
+    wait_multimodal_delta_sclip._prev_waits = {}
 
 # OLD METHODS
 def _resolve_multimodal_wait_config():

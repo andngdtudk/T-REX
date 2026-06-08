@@ -30,8 +30,10 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Run traffic signal control simulations with different agents.")
     
     parser.add_argument("--agent", type=str, default='MPLight',
-                        choices=['STOCHASTIC', 'MAXWAVE', 'MAXPRESSURE', 'IDQN', "IDQN_MULTIMODAL", 'IDQN_DELTA',
-                                 'IDQN_DELTASCALE', 'IDQN_DELTASCLIP', 'IDQN_DELTAVAR', 'IPPO', 'MPLight', 'MA2C', 'FMA2C',
+                        choices=['STOCHASTIC', 'MAXWAVE', 'MAXPRESSURE',
+                                 'IDQN', "IDQN_MULTIMODAL", 'IDQN_DELTA', 'IDQN_DELTASCALE', 'IDQN_DELTASCLIP', 'IDQN_DELTAVAR',
+                                 'IDQN_MM2',
+                                 'IPPO', 'MPLight', 'MA2C', 'FMA2C',
                                  'MPLightFULL', 'FMA2CFull', 'FMA2CVAL'],
                         help="Choose the RL-based or rule-based agent to run.")
                         # TODO: fix MA2C

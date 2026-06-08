@@ -434,5 +434,14 @@ mdp_configs = {
             'clip_wait': 4.0,
             'lambda_f': 0.5,
         }
-    }
+    },
+    'IDQN_MM2': {
+        'kbh_joined_432': {
+            'car_wait_weight': 1.0,
+            'bike_wait_weight': 1.0,
+            'ped_wait_weight': 1.0,
+            'norm_wait': 224.0,
+            'clip_wait': 4.0,
+        }
+    },
 }
