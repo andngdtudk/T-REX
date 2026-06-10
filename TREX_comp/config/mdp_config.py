@@ -436,7 +436,7 @@ mdp_configs = {
         }
     },
     'IDQN_MM2': {
-        'kbh_joined_432': {
+        'kbh_j1_442m': {
             'car_wait_weight': 1.0,
             'bike_wait_weight': 1.0,
             'ped_wait_weight': 1.0,
