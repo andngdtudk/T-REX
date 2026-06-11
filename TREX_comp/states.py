@@ -118,13 +118,14 @@ def drq_delta_norm(signals):
     """Alias for :func:`drq_norm` to pair with delta rewards."""
     return drq_norm(signals)
 
+# OLD
 # TODO: figure out good normalization
 def drq_multimodal_norm(signals):
     observations = dict()
     for signal_id in signals:
         signal = signals[signal_id]
         obs = []
-        act_index = signal.phase
+        act_index = signal.phase # problem as lane index can be =! phase index
 
         # Pedestrian measures are signal-level; repeat per lane so tensor shape
         #  remains lane x feature and stays compatible with the existing IDQN model.
