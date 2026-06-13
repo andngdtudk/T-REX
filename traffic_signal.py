@@ -514,6 +514,7 @@ class Signal:
             lane_vehicles = self.get_vehicles(lane, distance)
             for vehicle in lane_vehicles:
                 all_vehicles.add(vehicle)
+                
                 # Update waiting time
                 if vehicle in self.waiting_times:
                     self.waiting_times[vehicle] += step_length

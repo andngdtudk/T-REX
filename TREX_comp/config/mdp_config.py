@@ -440,8 +440,8 @@ mdp_configs = {
             'car_wait_weight': 1.0,
             'bike_wait_weight': 1.0,
             'ped_wait_weight': 1.0,
-            'norm_wait': 224.0,
-            'clip_wait': 4.0,
+            'norm_wait': 443.1,
+            'clip_wait': 3.0,
         }
     },
 }
