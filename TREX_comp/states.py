@@ -118,7 +118,74 @@ def drq_delta_norm(signals):
     """Alias for :func:`drq_norm` to pair with delta rewards."""
     return drq_norm(signals)
 
-# OLD
+# NEW MULTIMODAL
+_LANE_CAPACITY = 28
+_MAX_SPEED_MS  = 20
+
+
+def drq_mm2(signals):
+    """DRQ observation with car, bike, and pedestrian features.
+
+    Shape per signal: (1, n_lanes, 9)
+
+    Features per lane:
+        active_phase   — 1 if this lane is actively served by the current
+                            green phase (via Signal.phase_lanes), 0 otherwise
+                            and during yellow transitions.
+        approach       — approaching (non-waiting) vehicle count / LANE_CAPACITY
+        car_wait       — (total_wait - bike_wait) / LANE_CAPACITY
+        bike_wait      — bike_total_wait / LANE_CAPACITY
+        queue          — waiting vehicle count / LANE_CAPACITY
+        bike_queue     — waiting bike count / LANE_CAPACITY
+        mean_speed     — mean vehicle speed / MAX_SPEED_MS (0.0 if lane empty)
+        ped_total_wait — signal-level ped_total_wait / LANE_CAPACITY (repeated per lane)
+        ped_waiting    — signal-level ped_waiting count / LANE_CAPACITY (repeated per lane)
+    """
+    observations = {}
+
+    for signal_id, signal in signals.items():
+        # Lanes actively served by the current phase; empty set during yellows
+        # (signal.phase >= signal.num_green_phases has no phase_lanes entry).
+        active_lanes = set(signal.phase_lanes.get(signal.phase, []))
+
+        ped_total_wait = float(signal.full_observation.get('ped_total_wait', 0.0)) / _LANE_CAPACITY
+        ped_waiting    = float(signal.full_observation.get('ped_waiting',    0.0)) / _LANE_CAPACITY
+
+        obs = []
+        for lane in signal.lanes:
+            lane_measures = signal.full_observation[lane]
+
+            total_wait = float(lane_measures.get('total_wait',      0.0))
+            bike_wait  = float(lane_measures.get('bike_total_wait', 0.0))
+            car_wait   = max(0.0, total_wait - bike_wait)
+
+            vehicles   = lane_measures.get('vehicles', [])
+            n_vehicles = len(vehicles)
+            mean_speed = (
+                sum(float(v.get('speed', 0.0)) for v in vehicles) / n_vehicles / _MAX_SPEED_MS
+                if n_vehicles > 0 else 0.0
+            )
+
+            lane_obs = [
+                1 if lane in active_lanes else 0,
+                float(lane_measures.get('approach',   0.0)) / _LANE_CAPACITY,
+                car_wait  / _LANE_CAPACITY,
+                bike_wait / _LANE_CAPACITY,
+                float(lane_measures.get('queue',      0.0)) / _LANE_CAPACITY,
+                float(lane_measures.get('bike_queue', 0.0)) / _LANE_CAPACITY,
+                mean_speed, # declared earlier
+                ped_total_wait,
+                ped_waiting,
+            ]
+            obs.append(lane_obs)
+
+        observations[signal_id] = np.expand_dims(
+            np.asarray(obs, dtype=np.float32), axis=0
+        )
+
+    return observations
+
+# OLD STATE
 # TODO: figure out good normalization
 def drq_multimodal_norm(signals):
     observations = dict()

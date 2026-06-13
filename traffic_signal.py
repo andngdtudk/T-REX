@@ -199,9 +199,76 @@ class Signal:
             logic.phases = self.phases
             self.sumo.trafficlight.setProgramLogic(self.id, logic)
 
+        # Build stable phase → lane lookup tables.
+        self._build_phase_lane_maps()
+
         self.signals = None     # Used to allow signal sharing
         self.full_observation = None
         self.last_step_vehicles = None
+
+    def _build_phase_lane_maps(self):
+        """Build phase_lanes and phase_ped_lanes maps.
+
+        phase_lanes[green_phase_idx]     → list of external vehicle inbound lanes
+                                            that are actively served (state G or g).
+        phase_ped_lanes[green_phase_idx] → list of pedestrian/crossing lanes
+                                            that are actively served (state W or w).
+
+        Only the first num_green_phases phases are processed; yellow phases
+        appended by create_yellows are excluded: all lanes show 0 during yellows.
+
+        Uses getControlledLinks as the stable positional index that aligns with
+        phase.state characters — both sequences are ordered identically by SUMO.
+        """
+        raw_links = self.sumo.trafficlight.getControlledLinks(self.id)
+
+        # Flatten: raw_links is a list of link-groups (one per state position).
+        # Each group contains one or more (inbound, via, outbound) tuples.
+        # We only need the inbound lane (index 0) per group.
+        flat_inbound = []
+        for group in raw_links:
+            if len(group) == 0:
+                # Phantom link — no lane to record, but position still counts.
+                flat_inbound.append(None)
+            else:
+                # Take the first non-internal inbound lane in the group.
+                chosen = None
+                for link in group:
+                    lane = link[0] if len(link) > 0 else None
+                    if lane and not lane.startswith(':'):
+                        chosen = lane
+                        break
+                # Fall back to any lane (even internal) so the position is filled.
+                if chosen is None and group[0]:
+                    chosen = group[0][0] if len(group[0]) > 0 else None
+                flat_inbound.append(chosen)
+
+        self.phase_lanes = {}
+        self.phase_ped_lanes = {}
+
+        for phase_idx in range(self.num_green_phases):
+            phase = self.phases[phase_idx]
+            vehicle_lanes = []
+            ped_lanes = []
+
+            for pos, char in enumerate(phase.state):
+                if pos >= len(flat_inbound):
+                    break
+                lane = flat_inbound[pos]
+                if lane is None:
+                    continue
+
+                if char in ('G', 'g'):
+                    # Vehicle or cyclist green — exclude internal connector lanes.
+                    if not lane.startswith(':') and lane not in vehicle_lanes:
+                        vehicle_lanes.append(lane)
+                elif char in ('W', 'w'):
+                    # Pedestrian/cyclist walk signal (crossing or sidewalk).
+                    if lane not in ped_lanes:
+                        ped_lanes.append(lane)
+
+            self.phase_lanes[phase_idx] = vehicle_lanes
+            self.phase_ped_lanes[phase_idx] = ped_lanes
 
     def _build_inbound_lane_to_signal_map(self):
         lane_to_signal = {}

@@ -160,7 +160,7 @@ agent_configs = {
 
     "IDQN_MM2": {
         'agent': IDQN,
-        'state': states.drq_multimodal_norm,
+        'state': states.drq_mm2,
         'reward': rewards.wait_multimodal_delta_sclip,
         'max_distance': 200,
         'BATCH_SIZE': 32,
