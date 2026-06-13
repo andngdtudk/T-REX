@@ -9,6 +9,7 @@ import numpy as np
 from TREX_comp.config.agent_config import agent_configs
 from TREX_comp.config.map_config import map_configs
 from TREX_comp.config.mdp_config import mdp_configs
+from multimodal_logger import MultimodalLogger          # logger for multimodal IDQN
 
 from incident_env import IncidentEnv
 from base_env import BaseEnv
@@ -191,6 +192,14 @@ def run_trial(args, trial):
         'load': args.load
     })
 
+    # Initialize multimodal logger for IDQN_MM2
+    mm_logger = None
+    if agent_key == "IDQN_MM2":
+        mm_logger = MultimodalLogger(
+            log_dir=run_log_dir,
+            agent_name="IDQN_MM2",
+        )  
+
     obs_act = {
         key: [env.obs_shape[key], len(env.phases.get(key, []))]
         for key in env.obs_shape
@@ -217,24 +226,30 @@ def run_trial(args, trial):
     # === Training or Testing ===
     try:
         if args.strategy == 1:
-            run_base_scenario(env, agent, args, agt_config, log_state_csv)
+            run_base_scenario(env, agent, args, agt_config, log_state_csv, mm_logger)
         else:
-            run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv)
+            run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv, mm_logger)
     finally:
         if log_state_csv is not None:
             log_state_csv[0].close()
+        
+        if mm_logger:
+            mm_logger.close()
         env.close()
         print(f"Trial {trial} completed for {args.agent} on {args.map}.", flush=True)
 
 
 # === Helper Functions ===
 
-def run_base_scenario(env, agent, args, agt_config, log_state_csv):
+def run_base_scenario(env, agent, args, agt_config, log_state_csv, mm_logger=None):
     if agt_config['load']:
         print('Testing under base condition...')
         for ep in range(args.seps, args.eps):
             print(f"Episode {ep + 1}/{args.eps} started (base test).", flush=True)
-            stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv)
+            stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv,
+            mm_logger=mm_logger, episode_num=ep + 1)
+            if mm_logger is not None:
+                mm_logger.end_episode(ep + 1, decisions=stats['decisions'], agent=agent,)
             print(
                 f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                 f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -244,7 +259,9 @@ def run_base_scenario(env, agent, args, agt_config, log_state_csv):
         print('Training under base condition...')
         for ep in range(args.eps):
             print(f"Episode {ep + 1}/{args.eps} started (base train).", flush=True)
-            stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv)
+            stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv, mm_logger=mm_logger, episode_num=ep + 1)
+            if mm_logger is not None:
+                mm_logger.end_episode(ep + 1, decisions=stats['decisions'], agent=agent,)
             print(
                 f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                 f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -252,7 +269,7 @@ def run_base_scenario(env, agent, args, agt_config, log_state_csv):
             )
 
 
-def run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv):
+def run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv, mm_logger=None):
     map_id = args.map
     agent_name = alg.__name__
     seed_file_1 = f"{agent_name}{map_id}-seed_ic1.txt"
@@ -269,7 +286,9 @@ def run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv):
                 seed_ic1, seed_ic2 = last_seeds_ic1.popleft(), last_seeds_ic2.popleft()
                 obs = env.reset(pre_seed=[seed_ic1, seed_ic2])
                 print(f"Episode {ep + 1}/{args.eps} started (incident test, seeded).", flush=True)
-                stats = run_episode(env, agent, obs, episode_index=ep + 1, log_state_csv=log_state_csv)
+                stats = run_episode(env, agent, obs, episode_index=ep + 1, log_state_csv=log_state_csv, mm_logger=mm_logger, episode_num=ep + 1)
+                if mm_logger is not None:
+                    mm_logger.end_episode(ep + 1, decisions=stats['decisions'], agent=agent,)
                 print(
                     f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                     f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -279,7 +298,9 @@ def run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv):
             print('Testing without predefined incident seeds...')
             for ep in range(args.seps, args.eps):
                 print(f"Episode {ep + 1}/{args.eps} started (incident test).", flush=True)
-                stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv)
+                stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv, mm_logger=mm_logger, episode_num=ep + 1)
+                if mm_logger is not None:
+                    mm_logger.end_episode(ep + 1, decisions=stats['decisions'], agent=agent,)
                 print(
                     f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                     f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -298,7 +319,9 @@ def run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv):
                     last_seed_ic1.append(env.seed_ic1)
                     last_seed_ic2.append(env.seed_ic2)
                 print(f"Episode {ep + 1}/{args.eps} started (incident train, seed capture).", flush=True)
-                stats = run_episode(env, agent, obs, episode_index=ep + 1, log_state_csv=log_state_csv)
+                stats = run_episode(env, agent, obs, episode_index=ep + 1, log_state_csv=log_state_csv, mm_logger=mm_logger, episode_num=ep + 1)
+                if mm_logger is not None:
+                    mm_logger.end_episode(ep + 1, decisions=stats['decisions'], agent=agent,)
                 print(
                     f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                     f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -311,7 +334,9 @@ def run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv):
             print('Training without saving incident seeds...')
             for ep in range(args.eps):
                 print(f"Episode {ep + 1}/{args.eps} started (incident train).", flush=True)
-                stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv)
+                stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv, mm_logger=mm_logger, episode_num=ep + 1)
+                if mm_logger is not None:
+                    mm_logger.end_episode(ep + 1, decisions=stats['decisions'], agent=agent,)
                 print(
                     f"Episode {ep + 1}/{args.eps} finished: decisions={stats['decisions']}, "
                     f"sim_time={stats['sim_time']:.1f}, done={stats['done']}",
@@ -392,31 +417,36 @@ def _log_step_metrics(agent, step_metrics, step_number):
                 print(f"  step {step_number}: " + " ".join(parts), flush=True)
 
 
-def run_episode(env, agent, obs=None, episode_index=None, log_state_csv=None):
+def run_episode(env, agent, obs=None, episode_index=None, log_state_csv=None,
+                mm_logger=None, episode_num=None):                  # MM-LOG
+ 
     debug_episode = os.getenv('TREX_DEBUG_EPISODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     if obs is None:
         obs = env.reset()
     done = False
     decisions = 0
     while not done:
-        if debug_episode:
-            print(f"  debug: decision {decisions + 1} -> act", flush=True)
         step_metrics = agent.step_metrics(obs) if hasattr(agent, "step_metrics") else None
         act = agent.act(obs)
         safe_act = {}
         for signal_id in getattr(env, 'signal_ids', []):
             selected = act.get(signal_id, 0)
             num_phases = len(env.phases.get(signal_id, []))
-            if num_phases <= 0:
-                safe_selected = 0
-            else:
-                safe_selected = int(selected) % num_phases
-            safe_act[signal_id] = safe_selected
+            safe_act[signal_id] = int(selected) % num_phases if num_phases > 0 else 0
         act = safe_act
-        if debug_episode:
-            print(f"  debug: decision {decisions + 1} actions={act}", flush=True)
-            print(f"  debug: decision {decisions + 1} -> step", flush=True)
+ 
         obs, rew, done, info = env.step(act)
+ 
+        # MM logger
+        if mm_logger is not None:
+            mm_logger.log_step(
+                episode=episode_num or (episode_index or 0),
+                decision=decisions + 1,
+                env=env,
+                rewards=rew,
+                agent=agent,
+            )
+ 
         _log_state_features(obs, episode_index, decisions + 1, log_state_csv)
         _log_step_reward(env, rew, decisions + 1)
         if debug_episode:
@@ -429,13 +459,9 @@ def run_episode(env, agent, obs=None, episode_index=None, log_state_csv=None):
                 f"  progress: decisions={decisions}, sim_time={env.sumo.simulation.getTime():.1f}",
                 flush=True,
             )
-
+ 
     sim_time = env.sumo.simulation.getTime() if hasattr(env, 'sumo') else -1
-    return {
-        'decisions': decisions,
-        'sim_time': sim_time,
-        'done': done,
-    }
+    return {'decisions': decisions, 'sim_time': sim_time, 'done': done}
 
 
 def _get_idqn_feature_names(state_fn):
