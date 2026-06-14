@@ -164,11 +164,11 @@ agent_configs = {
         'reward': rewards.wait_multimodal_delta_sclip,
         'max_distance': 200,
         'BATCH_SIZE': 32,
-        'GAMMA': 0.99,
+        'GAMMA': 0.95, # was 0.99, changed to stabilize
         'EPS_START': 1.0,
-        'EPS_END': 0.0,
+        'EPS_END': 0.05, # was 0.0, avoid fully greedy
         'EPS_DECAY': 504, # 100 epochs of 720 steps, 70%; was 220  
-        'TARGET_UPDATE': 100, # was 500, changed to handle fast Q growth
+        'TARGET_UPDATE': 50, # was 500, changed to handle fast Q growth
         "MAX_GRAD_NORM": 1.0, # added to handle fast Q growth
     },
 
