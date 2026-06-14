@@ -207,6 +207,14 @@ def run_trial(args, trial):
 
     agent = alg(agt_config, obs_act, args.map, trial, lr=args.lr) if alg.__name__ in {'MPLight', 'IDQN'} else \
             alg(agt_config, obs_act, args.map, trial)
+    
+    # Clear replay buffer: needed for loading a pretrained model with --load True and restarting
+    #   with different reward weights. Comment out after the first clean run.
+    """
+    if hasattr(agent, 'clear_replay_buffer') and agt_config.get('load'):
+        agent.clear_replay_buffer()
+        print("Replay buffer cleared for new reward scale.", flush=True)
+    """
 
     feature_names = _get_idqn_feature_names(env.state_fn)
     log_state_csv = None

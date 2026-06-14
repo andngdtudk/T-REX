@@ -91,6 +91,10 @@ class IDQN(IndependentAgent):
         for key, vals in values.items():
             stats[key] = float(np.mean(vals))
         return stats
+        
+    def clear_replay_buffer(self):
+        for agent in self.agents.values():
+            agent.clear_replay_buffer()
 
 
 class DQNAgent(Agent):
@@ -101,6 +105,9 @@ class DQNAgent(Agent):
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         replay_buffer = replay_buffers.ReplayBuffer(10000)
         self.last_statistics = {}
+
+        # expose for logging
+        self._explore = None
 
         if num_agents > 0:
             explorer = SharedEpsGreedy(
@@ -117,19 +124,29 @@ class DQNAgent(Agent):
                 lambda: np.random.randint(act_space),
             )
 
+        # keep track of explorer for logging
+        self._explorer = explorer
+
         if num_agents > 0:
             print('USING SHAREDDQN')
             self.agent = SharedDQN(self.model, self.optimizer, replay_buffer,
                                    config['GAMMA'], explorer, gpu=self.device.index,
                                    minibatch_size=config['BATCH_SIZE'], replay_start_size=config['BATCH_SIZE'],
                                    phi=lambda x: np.asarray(x, dtype=np.float32),
-                                   target_update_interval=config['TARGET_UPDATE']*num_agents, update_interval=num_agents)
+                                   target_update_interval=config['TARGET_UPDATE']*num_agents,
+                                   update_interval=num_agents,
+                                   # added max_grad_norm for stability
+                                   max_grad_norm=config.get('MAX_GRAD_NORM', 10.0),
+                                   )
         else:
-            self.agent = DQN(self.model, self.optimizer, replay_buffer, config['GAMMA'], explorer,
-                             gpu=self.device.index,
+            self.agent = DQN(self.model, self.optimizer, replay_buffer,
+                             config['GAMMA'], explorer, gpu=self.device.index,
                              minibatch_size=config['BATCH_SIZE'], replay_start_size=config['BATCH_SIZE'],
                              phi=lambda x: np.asarray(x, dtype=np.float32),
-                             target_update_interval=config['TARGET_UPDATE'])
+                             target_update_interval=config['TARGET_UPDATE'],
+                             # idem
+                             max_grad_norm=config.get('MAX_GRAD_NORM', 10.0),
+                             )
 
     def act(self, observation, valid_acts=None, reverse_valid=None):
         if isinstance(self.agent, SharedDQN):
@@ -142,8 +159,13 @@ class DQNAgent(Agent):
             self.agent.observe(observation, reward, done, info)
         else:
             self.agent.observe(observation, reward, done, False)
+ 
         if hasattr(self.agent, "get_statistics"):
             self.last_statistics = _stats_to_dict(self.agent.get_statistics())
+ 
+        # surface epsilon so MultimodalLogger and _log_step_metrics can see it
+        if self._explorer is not None and hasattr(self._explorer, 'epsilon'):
+            self.last_statistics['epsilon'] = float(self._explorer.epsilon)
 
     def save(self, path):
         torch.save({
@@ -154,6 +176,10 @@ class DQNAgent(Agent):
     def load(self, path):
         self.model.load_state_dict(torch.load(path)['model_state_dict'])
         self.optimizer.load_state_dict(torch.load(path)['optimizer_state_dict'])
+
+    def clear_replay_buffer(self):
+        capacity = self.agent.replay_buffer.capacity
+        self.agent.replay_buffer = replay_buffers.ReplayBuffer(capacity)
 
     def q_values(self, observation):
         obs = np.asarray(observation, dtype=np.float32)

@@ -167,8 +167,9 @@ agent_configs = {
         'GAMMA': 0.99,
         'EPS_START': 1.0,
         'EPS_END': 0.0,
-        'EPS_DECAY': 220,
-        'TARGET_UPDATE': 100 # was 500, changed to handle fast Q growth
+        'EPS_DECAY': 504, # 100 epochs of 720 steps, 70%; was 220  
+        'TARGET_UPDATE': 100, # was 500, changed to handle fast Q growth
+        "MAX_GRAD_NORM": 1.0, # added to handle fast Q growth
     },
 
     'IPPO': {

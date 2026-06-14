@@ -253,6 +253,22 @@ def _extract_mean_q(agent) -> float:
                 return float(v)
     return float("nan")
 
+def _extract_epsilon(agent) -> float:
+    """Read epsilon from IDQN training_stats (requires the patch above)."""
+    if agent is None:
+        return float("nan")
+    if hasattr(agent, "training_stats"):
+        stats = agent.training_stats() or {}
+        if "epsilon" in stats:
+            return float(stats["epsilon"])
+    # direct attribute fallback
+    for attr in ("epsilon", "_epsilon"):
+        if hasattr(agent, attr):
+            v = getattr(agent, attr)
+            if v is not None:
+                return float(v)
+    return float("nan")
+
 
 def _extract_loss(agent) -> float:
     if agent is None:
