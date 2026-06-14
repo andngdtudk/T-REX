@@ -13,7 +13,6 @@ from pfrl.utils.contexts import evaluating
 
 from TREX_comp.agents.agent import IndependentAgent, Agent, _safe_model_path
 
-
 def _stats_to_dict(stats):
     if not stats:
         return {}

@@ -168,7 +168,7 @@ agent_configs = {
         'EPS_START': 1.0,
         'EPS_END': 0.0,
         'EPS_DECAY': 220,
-        'TARGET_UPDATE': 500
+        'TARGET_UPDATE': 100 # was 500, changed to handle fast Q growth
     },
 
     'IPPO': {

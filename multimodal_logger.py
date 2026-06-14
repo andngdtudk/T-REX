@@ -131,7 +131,7 @@ class MultimodalLogger:
         rew_max  = float(np.max(rew_values))  if rew_values else 0.0
 
         # --- agent internals -------------------------------------------
-        epsilon = float(getattr(agent, "epsilon", float("nan")))
+        epsilon = _extract_epsilon(agent)
         mean_q  = _extract_mean_q(agent)
 
         # -- accumulate for episode summary -----------------------------

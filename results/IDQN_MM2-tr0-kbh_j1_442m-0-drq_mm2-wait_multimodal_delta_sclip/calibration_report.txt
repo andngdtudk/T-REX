@@ -2,27 +2,27 @@
   norm_wait / clip_wait calibration report
 ============================================================
 
-Dataset : 56 step-deltas across 1 episodes
+Dataset : 71,900 step-deltas across 100 episodes
 
 Per-step |Δ combined_wait| distribution:
-  mean :        290.5
-  std  :        178.3
-  p50  :        291.8
-  p75  :        443.1  ← recommended norm_wait
-  p90  :        514.5
-  p95  :        529.8
-  p99  :        563.7
+  mean :       1356.6
+  std  :        975.5
+  p50  :       1328.0
+  p75  :       1717.5  ← recommended norm_wait
+  p90  :       2026.5
+  p95  :       2117.5
+  p99  :       4203.5
 
 Mean accumulated wait per step:
-  car  :       3393.5
-  bike :       1236.8  (0.4x car)
-  ped  :         53.6  (0.02x car)
+  car  :      60438.1
+  bike :     227348.7  (3.8x car)
+  ped  :       9039.0  (0.15x car)
 
 --- Recommended mdp_configs entry ---
 
 'IDQN_MM2': {
     # --- calibrated from run data ---
-    'norm_wait'        : 443.1,
+    'norm_wait'        : 1717.5,
     'clip_wait'        : 3.0,
 
     # Option A: equal weights, larger norm  (simpler, try first)
@@ -32,19 +32,19 @@ Mean accumulated wait per step:
 
     # Option B: balanced weights so each mode contributes equally to reward
     # 'car_wait_weight'  : 1.0,
-    # 'bike_wait_weight' : 2.7437,   # down-weights bike by 0.4x
-    # 'ped_wait_weight'  : 63.3159,
+    # 'bike_wait_weight' : 0.2658,   # down-weights bike by 3.8x
+    # 'ped_wait_weight'  : 6.6864,
 },
 
 --- What this fixes ---
-Current norm_wait=224 → typical delta (443) / 224 = 2.0x clip limit.
+Current norm_wait=224 → typical delta (1718) / 224 = 7.7x clip limit.
 Every reward is clipped to ±3.0; the agent sees only a binary signal.
 
-New norm_wait=443.1 → typical delta normalises to ~1.0 before clipping.
+New norm_wait=1717.5 → typical delta normalises to ~1.0 before clipping.
 clip_wait=3.0 keeps the ±4 headroom for outlier steps.
 
 If you want to reduce bike dominance, use Option B weights.
-Bike currently contributes 26% of combined wait;
+Bike currently contributes 77% of combined wait;
 balanced weights bring it to ~33%.
 
 ============================================================
