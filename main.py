@@ -205,6 +205,8 @@ def run_trial(args, trial):
         for key in env.obs_shape
     }
 
+    print("DEBUG obs_act shapes:", {k: v for k, v in obs_act.items()})
+
     agent = alg(agt_config, obs_act, args.map, trial, lr=args.lr) if alg.__name__ in {'MPLight', 'IDQN'} else \
             alg(agt_config, obs_act, args.map, trial)
     
@@ -427,7 +429,10 @@ def _log_step_metrics(agent, step_metrics, step_number):
 
 def run_episode(env, agent, obs=None, episode_index=None, log_state_csv=None,
                 mm_logger=None, episode_num=None):                  # MM-LOG
- 
+    
+    if hasattr(env.state_fn, 'reset'):
+        env.state_fn.reset()
+
     debug_episode = os.getenv('TREX_DEBUG_EPISODE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     if obs is None:
         obs = env.reset()

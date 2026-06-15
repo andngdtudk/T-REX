@@ -123,6 +123,77 @@ _LANE_CAPACITY = 28
 _MAX_SPEED_MS  = 20
 
 
+def drq_mm2_delta(signals):
+    """Multimodal DRQ observation with delta car/bike wait features."""
+ 
+    # --- per-call previous-wait store (reset-safe) ---
+    prev = getattr(drq_mm2_delta, '_prev', None)
+    signal_ids = set(signals.keys())
+    if prev is None or set(prev.keys()) != signal_ids:
+        prev = {}
+        drq_mm2_delta._prev = prev
+ 
+    observations = {}
+ 
+    for signal_id, signal in signals.items():
+        active_lanes = set(signal.phase_lanes.get(signal.phase, []))
+ 
+        ped_total_wait = float(signal.full_observation.get('ped_total_wait', 0.0)) / _LANE_CAPACITY
+        ped_waiting    = float(signal.full_observation.get('ped_waiting',    0.0)) / _LANE_CAPACITY
+ 
+        # Previous per-lane waits for this signal (dict keyed by lane id)
+        prev_signal = prev.get(signal_id, {})
+        next_prev_signal = {}
+ 
+        obs = []
+        for lane in signal.lanes:
+            lm = signal.full_observation[lane]
+ 
+            total_wait = float(lm.get('total_wait',      0.0))
+            bike_wait  = float(lm.get('bike_total_wait', 0.0))
+            car_wait   = max(0.0, total_wait - bike_wait)
+ 
+            # Delta vs previous step; 0.0 on first step
+            prev_car, prev_bike = prev_signal.get(lane, (car_wait, bike_wait))
+            delta_car  = car_wait  - prev_car
+            delta_bike = bike_wait - prev_bike
+            next_prev_signal[lane] = (car_wait, bike_wait)
+ 
+            vehicles   = lm.get('vehicles', [])
+            n_vehicles = len(vehicles)
+            mean_speed = (
+                sum(float(v.get('speed', 0.0)) for v in vehicles) / n_vehicles / _MAX_SPEED_MS
+                if n_vehicles > 0 else 0.0
+            )
+ 
+            obs.append([
+                1.0 if lane in active_lanes else 0.0,
+                float(lm.get('approach',   0.0)) / _LANE_CAPACITY,
+                delta_car  / _LANE_CAPACITY,   # signed: negative = improvement
+                delta_bike / _LANE_CAPACITY,   # signed: negative = improvement
+                float(lm.get('queue',      0.0)) / _LANE_CAPACITY,
+                float(lm.get('bike_queue', 0.0)) / _LANE_CAPACITY,
+                mean_speed,
+                ped_total_wait,
+                ped_waiting,
+            ])
+ 
+        prev[signal_id] = next_prev_signal
+ 
+        observations[signal_id] = np.expand_dims(
+            np.asarray(obs, dtype=np.float32), axis=0
+        )
+ 
+    return observations
+
+ 
+def _reset_drq_mm2_delta():
+    drq_mm2_delta._prev = {}
+ 
+ 
+drq_mm2_delta.reset = _reset_drq_mm2_delta
+
+# First MM2 implementation
 def drq_mm2(signals):
     """DRQ observation with car, bike, and pedestrian features.
 
