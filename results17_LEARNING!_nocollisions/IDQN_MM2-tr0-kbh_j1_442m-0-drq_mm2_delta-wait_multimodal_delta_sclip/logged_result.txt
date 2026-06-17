@@ -1,0 +1,72 @@
+Car results
+Car simulation data:
+ Inserted / Loaded: 2223 / 5226
+ Running: 98
+ Waiting: 82
+ Teleports / Collisions: 0 / 0
+ Emergency Stops: 32
+ Emergency Brakings: 0
+ Never Arrived (arrival=-1): 98
+Car statistics (avg of 2223):
+ RouteLength: 265.19
+ Speed: 2.54
+ Duration: 147.76
+ WaitingTime: 84.20
+ TimeLoss: 127.43
+ DepartDelay: 729.42
+Bike results
+Bike simulation data:
+ Inserted / Loaded: 866 / 866
+ Running: 21
+ Waiting: 13
+ Teleports / Collisions: 0 / 0
+ Emergency Stops: 3
+ Emergency Brakings: 0
+ Never Arrived (arrival=-1): 21
+Bike statistics (avg of 866):
+ RouteLength: 266.83
+ Speed: 2.91
+ Duration: 104.27
+ WaitingTime: 33.63
+ TimeLoss: 50.75
+ DepartDelay: 1.30
+Pedestrian results
+Pedestrian simulation data:
+ Inserted / Loaded: 742 / N/A
+ Running: 36
+ Waiting: 5
+ Never Arrived (arrival=-1): 36
+Pedestrian statistics (avg of 706):
+ RouteLength: 169.43
+ Speed: 1.17
+ Duration: 146.65
+ WaitingTime: 8.63
+ TimeLoss: 23.35
+ DepartDelay: N/A
+
+ ============================================================
+  IDQN_MM2 — Multimodal Training Report
+============================================================
+
+Episodes recorded : 100
+Metric                     First-10 mean   Last-10 mean       Δ%
+-----------------------------------------------------------------
+Car wait (s·steps)           2160812.200    1791498.200 ↓  17.1%
+Bike wait (s·steps)          4065563.800     758169.450 ↓  81.4%
+Ped wait (s·steps)             28873.700       7344.400 ↓  74.6%
+Car queue (veh·steps)          34774.500      25739.200 ↓  26.0%
+Bike queue (veh·steps)         16607.000       6500.100 ↓  60.9%
+Mean reward                       -0.340         -0.013 ↑  96.2%
+Mean loss                          0.164          0.032 ↓  80.7%
+Mean Q-value                       2.593          0.202 ↓  92.2%
+
+--- Mode fraction (last 10 episodes) ---
+  Car  : 73.8%
+  Bike : 25.9%
+  Ped  : 0.3%
+
+--- Reward range (episode mean) ---
+  Min : -2.6589   Max : 3.0000
+
+--- Exploration (epsilon) ---
+  Final epsilon : 0.0500
