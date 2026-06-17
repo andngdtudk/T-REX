@@ -360,6 +360,97 @@ def mplight_full(signals):
         observations[signal_id] = np.asarray(obs)
     return observations
 
+def mplight_mm(signals, num_phase_pairs=None):
+    """MPLight state function extended with bike and pedestrian demand.
+
+    num_phase_pairs: the GLOBAL len(phase_pairs) for this map (same value
+    FRAP_MM uses as output_shape/num_actions). This must be passed in
+    (e.g. via functools.partial when wiring up agt_config['state']) rather
+    than inferred per-signal, because MPLight_MM is a SharedAgent: every
+    signal's state vector is batched together and must be the same length,
+    even though individual intersections may not use every phase pair
+    (signal_configs[map]['valid_acts'][signal_id] can be a subset).
+
+    Per signal, the observation vector is laid out as:
+
+        [phase,
+         m0_car_pressure, m0_bike_pressure,
+         m1_car_pressure, m1_bike_pressure,
+         ...,
+         p0_ped_pressure, p1_ped_pressure, ..., p{N-1}_ped_pressure]
+
+    i.e. for each movement (direction in signal.lane_sets) we emit a pair
+    (car_pressure, bike_pressure) — this is what lets FRAP_MM use
+    demand_shape=2 and otherwise reuse the unmodified per-movement FRAP
+    pipeline. After all movements, we append ONE pedestrian-pressure scalar
+    per phase_pair index (zero-padded to max_phase_pairs across signals,
+    same way num_actions is shared/padded today via valid_acts), so the
+    model can bias phase-pair scores with FRAP_MM's pair-level pedestrian
+    embedding.
+
+    car_pressure / bike_pressure follow the same inbound-minus-downstream
+    logic as the original mplight() state fn, just split by vehicle class
+    using the 'queue' vs 'bike_queue' lane fields already populated in
+    Signal.observe().
+
+    ped_pressure for phase_pair i = sum of signal.ped_crossing_pressure[d]
+    for every crossing direction d served during that phase pair (per
+    Signal._build_phase_pair_ped_crossings), i.e. "how much pedestrian
+    demand would get served if we picked this phase pair right now."
+
+    Requires Signal to expose (see signals_mm_patch.py):
+        - signal.phase_pair_ped_crossings: dict[pair_idx -> list[direction]]
+        - signal.ped_crossing_pressure: dict[direction -> float], refreshed
+          each observe() call.
+    """
+    observations = dict()
+    for signal_id in signals:
+        signal = signals[signal_id]
+        obs = [signal.phase]
+
+        for direction in signal.lane_sets:
+            car_pressure = 0
+            bike_pressure = 0
+            for lane in signal.lane_sets[direction]:
+                lane_obs = signal.full_observation[lane]
+                total_queue = lane_obs['queue']
+                bike_queue = lane_obs.get('bike_queue', 0)
+                car_pressure += (total_queue - bike_queue)
+                bike_pressure += bike_queue
+
+            for lane in signal.lane_sets_outbound[direction]:
+                dwn_signal = signal.out_lane_to_signalid[lane]
+                if dwn_signal in signal.signals:
+                    dwn_obs = signal.signals[dwn_signal].full_observation[lane]
+                    dwn_total = dwn_obs['queue']
+                    dwn_bike = dwn_obs.get('bike_queue', 0)
+                    car_pressure -= (dwn_total - dwn_bike)
+                    bike_pressure -= dwn_bike
+
+            obs.append(car_pressure)
+            obs.append(bike_pressure)
+
+        # Pedestrian context, one scalar per GLOBAL phase_pair index.
+        # Phase pairs this signal doesn't actually use (not in its
+        # valid_acts) stay zero — same padding convention the rest of
+        # MPLight already relies on for the action/Q-value head.
+        if num_phase_pairs is None:
+            raise ValueError(
+                "mplight_mm requires num_phase_pairs (global len(phase_pairs) "
+                "for this map) — wire it via functools.partial in agent_config, "
+                "e.g. partial(mplight_mm, num_phase_pairs=len(signal_configs[map]['phase_pairs']))"
+            )
+        ped_block = np.zeros(num_phase_pairs, dtype=np.float32)
+        crossing_pressure = getattr(signal, 'ped_crossing_pressure', {})
+        for pair_idx, directions in getattr(signal, 'phase_pair_ped_crossings', {}).items():
+            if pair_idx >= num_phase_pairs:
+                continue
+            ped_block[pair_idx] = sum(crossing_pressure.get(d, 0.0) for d in directions)
+
+        obs.extend(ped_block.tolist())
+        observations[signal_id] = np.asarray(obs, dtype=np.float32)
+    return observations
+
 #endregion
 #============================================================================================
 #region Wave

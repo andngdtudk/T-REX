@@ -191,6 +191,20 @@ agent_configs = {
         'TARGET_UPDATE': 500,
         'demand_shape': 1
     },
+    'MPLight_MM': {
+            'agent': MPLight_MM,
+            'state': partial(state_mplight_mm, num_phase_pairs=len(signal_configs[MAP]['phase_pairs'])),
+            'reward': partial(reward_mplight_mm, w_bike=1.0, w_ped=1.0),
+            'reward': rewards.pressure,
+            'max_distance': 200,
+            'BATCH_SIZE': 32,
+            'GAMMA': 0.99,
+            'EPS_START': 1.0,
+            'EPS_END': 0.0,
+            'EPS_DECAY': 220,
+            'TARGET_UPDATE': 500,
+            'demand_shape': 1
+        },
     'FMA2C': {
         'agent': FMA2C,
         'state': states.fma2c,
