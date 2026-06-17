@@ -29,6 +29,7 @@
         <time-to-teleport value="300"/>
         <pedestrian.model value="striping"/>
         <pedestrian.striping.stripe-width value="0.55"/>
+        <ignore-junction-blocker value="10"/>
     </processing>
 
     <routing>
