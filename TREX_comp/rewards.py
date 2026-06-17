@@ -364,6 +364,8 @@ def _reset_wait_multimodal_delta_sclip():
     """Reset persistent state between episodes."""
     wait_multimodal_delta_sclip._prev_waits = {}
 
+wait_multimodal_delta_sclip.reset = _reset_wait_multimodal_delta_sclip
+
 # OLD METHODS
 def _resolve_multimodal_wait_config():
     """Resolve config for multimodal waiting-time rewards.

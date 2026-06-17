@@ -438,9 +438,9 @@ mdp_configs = {
     'IDQN_MM2': {
         'kbh_j1_442m': {
             'car_wait_weight': 1.0,
-            'bike_wait_weight': 0.3225, # was 1, then kept 1, was 74% of bike signal
-            'ped_wait_weight': 6.6864, # was 1, was only .9% of reward signal, 
-            'norm_wait': 1717.5, # was 224, 443.1 after mm but with new weights needs to be higher
+            'bike_wait_weight': 0.0, # was 1, then kept 1, was 74% of bike signal, then 0.3225 but still too much
+            'ped_wait_weight': 99.7661, # was 1, was only .9% of reward signal, then 6.6864
+            'norm_wait': 1413.5, # was 224, 443.1 after mm but with new weights needs to be higher,  1717.5,
             'clip_wait': 3.0,
         }
     },

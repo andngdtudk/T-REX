@@ -30,25 +30,51 @@ def _entropy_from_q_values(q_values):
     probs = exp_vals / np.sum(exp_vals)
     return float(-np.sum(probs * np.log(probs + 1e-12)))
 
+class LaneWiseModel(nn.Module):
+    """
+    Processes each lane's feature vector independently, then
+    aggregates across lanes before selecting an action.
+    
+    Input:  (batch, 1, n_lanes, n_features)  e.g. (B, 1, 21, 9)
+    Output: DiscreteActionValue over act_space actions
+    """
+    def __init__(self, n_features, act_space, hidden=64):
+        super().__init__()
+        # Per-lane encoder: same weights applied to each lane
+        self.lane_encoder = nn.Sequential(
+            nn.Linear(n_features, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+        )
+        # Decision head: operates on the mean pooled lane representation
+        self.head = nn.Sequential(
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, act_space),
+            DiscreteActionValueHead()
+        )
+
+    def forward(self, x):
+        # x: (B, 1, n_lanes, n_features)
+        B = x.shape[0]
+        x = x.squeeze(1)                    # (B, n_lanes, n_features)
+        # Apply lane encoder to each lane independently
+        x = self.lane_encoder(x)            # (B, n_lanes, hidden)
+        # Mean pool across lanes
+        x = x.mean(dim=1)                   # (B, hidden)
+        return self.head(x)
+
 
 class IDQN(IndependentAgent):
     def __init__(self, config, obs_act, map_name, thread_number, lr=0.001):
         super().__init__(config, obs_act, map_name, thread_number)
         for key in obs_act:
-            obs_space = obs_act[key][0]
+            obs_space = obs_act[key][0] # (1, n_lanes, n_features)
             act_space = obs_act[key][1]
+            n_features = obs_space[2]   # 9 if multimodal
 
-            model = nn.Sequential(
-                nn.Conv2d(obs_space[0], 64, kernel_size=(2, 2)),
-                nn.ReLU(),
-                nn.Flatten(),
-                nn.LazyLinear(64),
-                nn.ReLU(),
-                nn.Linear(64, 64),
-                nn.ReLU(),
-                nn.Linear(64, act_space),
-                DiscreteActionValueHead()
-            )
+            model = LaneWiseModel(n_features, act_space, hidden=64)
 
             self.agents[key] = DQNAgent(config, act_space, model, lr=lr)
             if self.config['load']:

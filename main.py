@@ -325,6 +325,12 @@ def run_incident_scenario(env, agent, args, agt_config, alg, log_state_csv, mm_l
 
             for ep in range(args.eps):
                 obs = env.reset()
+
+                if hasattr(env.state_fn, 'reset'):
+                    env.state_fn.reset()
+                if hasattr(env.reward_fn, 'reset'):
+                    env.reward_fn.reset()
+
                 if ep >= args.eps - args.repeat:
                     last_seed_ic1.append(env.seed_ic1)
                     last_seed_ic2.append(env.seed_ic2)
@@ -449,6 +455,39 @@ def run_episode(env, agent, obs=None, episode_index=None, log_state_csv=None,
         act = safe_act
  
         obs, rew, done, info = env.step(act)
+
+        # DEBUG
+        # Add after obs, rew, done, info = env.step(act) for the first 10 decisions
+        if decisions < 10:
+            print(f"\n--- Decision {decisions+1} ---")
+            for sig_id, r in rew.items():
+                print(f"  {sig_id}: action={act.get(sig_id)}, reward={r:.4f}")
+            # Also print raw combined wait for one signal to see the scale
+            sig = list(env.signals.values())[0]
+            car_w = sum(max(0, sig.full_observation[l].get('total_wait',0) - 
+                        sig.full_observation[l].get('bike_total_wait',0)) 
+                        for l in sig.lanes)
+            bike_w = sum(sig.full_observation[l].get('bike_total_wait',0) 
+                        for l in sig.lanes)
+            print(f"  raw car_wait={car_w:.1f}  bike_wait={bike_w:.1f}")
+            
+        if decisions <20:
+            sig = list(env.signals.values())[0]
+            print(f"  Phase {act.get('J01')}: active_lanes={list(sig.phase_lanes.get(act.get('J01',''), []))[:5]}...")
+    
+            # Per-phase bike vs car wait breakdown
+            for phase_idx in range(4):
+                phase_lanes = set(sig.phase_lanes.get(phase_idx, []))
+                phase_bike = sum(
+                    sig.full_observation[l].get('bike_total_wait', 0)
+                    for l in sig.lanes if l in phase_lanes
+                )
+                phase_car = sum(
+                    max(0, sig.full_observation[l].get('total_wait', 0) - 
+                        sig.full_observation[l].get('bike_total_wait', 0))
+                    for l in sig.lanes if l in phase_lanes
+                )
+                print(f"    phase {phase_idx}: car_wait={phase_car:.1f} bike_wait={phase_bike:.1f}")
  
         # MM logger
         if mm_logger is not None:
