@@ -266,6 +266,17 @@ map_configs = {
         'start_time': 0,
         'end_time': 3600,
         'warmup': 0
+    },
+    'kbh_j9_442m': {
+        'lights': [],
+        'net': 'environments/kbh_j9_442m/kbh_j9_4.4.2.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
     }
 
 }
