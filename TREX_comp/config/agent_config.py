@@ -1,3 +1,6 @@
+from functools import partial
+from TREX_comp.config.signal_config import signal_configs
+from TREX_comp.config.map_config import MAP
 import TREX_comp.rewards as rewards
 import TREX_comp.states as states
 
@@ -7,6 +10,7 @@ from TREX_comp.agents.maxpressure import MAXPRESSURE
 from TREX_comp.agents.pfrl_dqn import IDQN
 from TREX_comp.agents.pfrl_ppo import IPPO
 from TREX_comp.agents.mplight import MPLight
+from TREX_comp.agents.mplight_mm import MPLight_MM
 from TREX_comp.agents.fma2c import FMA2C
 
 agent_configs = {
@@ -191,10 +195,12 @@ agent_configs = {
         'TARGET_UPDATE': 500,
         'demand_shape': 1
     },
+
+    # TODO remove num_phase_pair explicitiness
     'MPLight_MM': {
             'agent': MPLight_MM,
-            'state': partial(state_mplight_mm, num_phase_pairs=len(signal_configs[MAP]['phase_pairs'])),
-            'reward': partial(reward_mplight_mm, w_bike=1.0, w_ped=1.0),
+            'state': partial(states.mplight_mm, num_phase_pairs=len(signal_configs[MAP]['phase_pairs'])),
+            'reward': partial(rewards.mplight_mm, w_bike=1.0, w_ped=1.0),
             'reward': rewards.pressure,
             'max_distance': 200,
             'BATCH_SIZE': 32,
