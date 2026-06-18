@@ -1510,5 +1510,9 @@ signal_configs = {
                                                                                                                                                                                                                                                              'S': None,
                                                                                                                                                                                                                                                              'W': None}
                                                                                                                                                                                                                                                              },
-                                                                                                                                                                                                                                                           'W': None}
+                                                                                                                                                                                                                                                           'W': None},
+	"kbh_j1_442m": {
+		'phase_pairs': [[0, 4], [1, 5], [2, 6], [3, 7]],
+		}
+
 }                                                                                                                                                                                                                                                        

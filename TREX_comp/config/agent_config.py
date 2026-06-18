@@ -1,6 +1,5 @@
 from functools import partial
 from TREX_comp.config.signal_config import signal_configs
-from TREX_comp.config.map_config import MAP
 import TREX_comp.rewards as rewards
 import TREX_comp.states as states
 
@@ -199,7 +198,7 @@ agent_configs = {
     # TODO remove num_phase_pair explicitiness
     'MPLight_MM': {
             'agent': MPLight_MM,
-            'state': partial(states.mplight_mm, num_phase_pairs=len(signal_configs[MAP]['phase_pairs'])),
+            'state': partial(states.mplight_mm, num_phase_pairs=len(signal_configs["kbh_j1_442m"]['phase_pairs'])),
             'reward': partial(rewards.mplight_mm, w_bike=1.0, w_ped=1.0),
             'reward': rewards.pressure,
             'max_distance': 200,

@@ -210,9 +210,9 @@ class Signal:
         self._build_phase_pair_ped_crossings()
         self.ped_crossing_pressure = {}   # crossing_id -> float, set each observe()
 
-            self.signals = None     # Used to allow signal sharing
-            self.full_observation = None
-            self.last_step_vehicles = None
+        self.signals = None     # Used to allow signal sharing
+        self.full_observation = None
+        self.last_step_vehicles = None
 
     def _build_phase_lane_maps(self):
         """Build phase_lanes and phase_ped_lanes maps.
@@ -313,102 +313,102 @@ class Signal:
         return None
 
     def _build_ped_crossing_groups(self):
-    """Group pedestrian-controlled edges into per-direction 'crossings'.
+        """Group pedestrian-controlled edges into per-direction 'crossings'.
 
-    A crossing roughly corresponds to one crosswalk leg of the intersection
-    (north leg, east leg, etc). We key crossings by the same direction
-    labels used elsewhere ('N', 'E', 'S', 'W') so they can be tied back to
-    phases via phase_ped_lanes.
+        A crossing roughly corresponds to one crosswalk leg of the intersection
+        (north leg, east leg, etc). We key crossings by the same direction
+        labels used elsewhere ('N', 'E', 'S', 'W') so they can be tied back to
+        phases via phase_ped_lanes.
 
-    self.ped_crossings: dict[direction -> {'in_edges': set, 'out_edges': set}]
-        in_edges/out_edges are used as the two 'camera' positions: vehicles
-        (here, persons) on in_edges are 'approaching' the crossing, persons
-        on out_edges (already across) are 'leaving'.
-    """
-    self.ped_crossings = {d: {'in_edges': set(), 'out_edges': set()} for d in ('N', 'E', 'S', 'W')}
+        self.ped_crossings: dict[direction -> {'in_edges': set, 'out_edges': set}]
+            in_edges/out_edges are used as the two 'camera' positions: vehicles
+            (here, persons) on in_edges are 'approaching' the crossing, persons
+            on out_edges (already across) are 'leaving'.
+        """
+        self.ped_crossings = {d: {'in_edges': set(), 'out_edges': set()} for d in ('N', 'E', 'S', 'W')}
 
-    links = self.sumo.trafficlight.getControlledLinks(self.id)
-    # phase.state position -> link group, same alignment used in
-    # _build_phase_lane_maps. We need the *direction* a given pedestrian
-    # link belongs to; reuse inbounds_fr_direction's lane membership where
-    # possible, else fall back to edge-geometry heuristics already used by
-    # generate_config (index_to_movement style) is overkill here — instead
-    # we tag a pedestrian link's direction using whichever cardinal lane_set
-    # direction shares its connector index, matching how phase_ped_lanes
-    # was already built positionally.
-    #
-    # Practically: for each link group position that has W/w in ANY phase,
-    # find the same position's lane via getControlledLinks, then look up
-    # which cardinal direction's vehicle lane sits at a 'nearby' index
-    # (same index bucket, see infer_phase_pair_from_state's bucket logic)
-    # OR — simpler and robust — use the edge's own from/to junction name
-    # convention if present, falling back to splitting evenly across W/E/N/S
-    # in link order. Below uses the robust positional-bucket approach.
+        links = self.sumo.trafficlight.getControlledLinks(self.id)
+        # phase.state position -> link group, same alignment used in
+        # _build_phase_lane_maps. We need the *direction* a given pedestrian
+        # link belongs to; reuse inbounds_fr_direction's lane membership where
+        # possible, else fall back to edge-geometry heuristics already used by
+        # generate_config (index_to_movement style) is overkill here — instead
+        # we tag a pedestrian link's direction using whichever cardinal lane_set
+        # direction shares its connector index, matching how phase_ped_lanes
+        # was already built positionally.
+        #
+        # Practically: for each link group position that has W/w in ANY phase,
+        # find the same position's lane via getControlledLinks, then look up
+        # which cardinal direction's vehicle lane sits at a 'nearby' index
+        # (same index bucket, see infer_phase_pair_from_state's bucket logic)
+        # OR — simpler and robust — use the edge's own from/to junction name
+        # convention if present, falling back to splitting evenly across W/E/N/S
+        # in link order. Below uses the robust positional-bucket approach.
 
-    state_len = max(1, len(links))
-    for idx, group in enumerate(links):
-        if len(group) == 0:
-            continue
-        for link in group:
-            if len(link) < 2:
+        state_len = max(1, len(links))
+        for idx, group in enumerate(links):
+            if len(group) == 0:
                 continue
-            in_lane, out_lane = link[0], link[1]
-            if in_lane is None or out_lane is None:
-                continue
-            # Only pedestrian-relevant lanes: SUMO marks ped lanes via the
-            # lane's allowed class, but we don't always have lane.getAllowed
-            # cheaply here, so rely on phase_ped_lanes already computed in
-            # _build_phase_lane_maps to know which *positions* are 'W'/'w'.
-            is_ped_position = False
-            for phase_idx in range(self.num_green_phases):
-                state = self.phases[phase_idx].state
-                if idx < len(state) and state[idx] in ('W', 'w'):
-                    is_ped_position = True
-                    break
-            if not is_ped_position:
-                continue
+            for link in group:
+                if len(link) < 2:
+                    continue
+                in_lane, out_lane = link[0], link[1]
+                if in_lane is None or out_lane is None:
+                    continue
+                # Only pedestrian-relevant lanes: SUMO marks ped lanes via the
+                # lane's allowed class, but we don't always have lane.getAllowed
+                # cheaply here, so rely on phase_ped_lanes already computed in
+                # _build_phase_lane_maps to know which *positions* are 'W'/'w'.
+                is_ped_position = False
+                for phase_idx in range(self.num_green_phases):
+                    state = self.phases[phase_idx].state
+                    if idx < len(state) and state[idx] in ('W', 'w'):
+                        is_ped_position = True
+                        break
+                if not is_ped_position:
+                    continue
 
-            bucket = min(3, int((idx * 4) / state_len))
-            direction = ('N', 'E', 'S', 'W')[bucket]
-            try:
-                in_edge = self.sumo.lane.getEdgeID(in_lane)
-                out_edge = self.sumo.lane.getEdgeID(out_lane)
-            except Exception:
-                continue
-            self.ped_crossings[direction]['in_edges'].add(in_edge)
-            self.ped_crossings[direction]['out_edges'].add(out_edge)
+                bucket = min(3, int((idx * 4) / state_len))
+                direction = ('N', 'E', 'S', 'W')[bucket]
+                try:
+                    in_edge = self.sumo.lane.getEdgeID(in_lane)
+                    out_edge = self.sumo.lane.getEdgeID(out_lane)
+                except Exception:
+                    continue
+                self.ped_crossings[direction]['in_edges'].add(in_edge)
+                self.ped_crossings[direction]['out_edges'].add(out_edge)
 
-    # Drop empty directions so downstream code only iterates real crossings.
-    self.ped_crossings = {
-        d: v for d, v in self.ped_crossings.items()
-        if v['in_edges'] or v['out_edges']
-    }
+        # Drop empty directions so downstream code only iterates real crossings.
+        self.ped_crossings = {
+            d: v for d, v in self.ped_crossings.items()
+            if v['in_edges'] or v['out_edges']
+        }
 
     def _build_phase_pair_ped_crossings(self):
-    """Build phase_pair_idx -> [crossing directions walkable in that phase]."""
-    self.phase_pair_ped_crossings = {}
-    myconfig = signal_configs.get(self.map_name, {})
-    valid_acts = myconfig.get('valid_acts', {}).get(self.id, {})
+        """Build phase_pair_idx -> [crossing directions walkable in that phase]."""
+        self.phase_pair_ped_crossings = {}
+        myconfig = signal_configs.get(self.map_name, {})
+        valid_acts = myconfig.get('valid_acts', {}).get(self.id, {})
 
-    for pair_idx, local_phase_idx in valid_acts.items():
-        ped_lanes = set(self.phase_ped_lanes.get(local_phase_idx, []))
-        directions = []
-        if ped_lanes:
-            for direction, crossing in self.ped_crossings.items():
-                # A crossing is "served" by this phase if any of its in/out
-                # edges' lanes appear in this phase's walk lanes.
-                served = False
-                for lane in ped_lanes:
-                    try:
-                        edge = self.sumo.lane.getEdgeID(lane)
-                    except Exception:
-                        continue
-                    if edge in crossing['in_edges'] or edge in crossing['out_edges']:
-                        served = True
-                        break
-                if served:
-                    directions.append(direction)
-        self.phase_pair_ped_crossings[pair_idx] = directions
+        for pair_idx, local_phase_idx in valid_acts.items():
+            ped_lanes = set(self.phase_ped_lanes.get(local_phase_idx, []))
+            directions = []
+            if ped_lanes:
+                for direction, crossing in self.ped_crossings.items():
+                    # A crossing is "served" by this phase if any of its in/out
+                    # edges' lanes appear in this phase's walk lanes.
+                    served = False
+                    for lane in ped_lanes:
+                        try:
+                            edge = self.sumo.lane.getEdgeID(lane)
+                        except Exception:
+                            continue
+                        if edge in crossing['in_edges'] or edge in crossing['out_edges']:
+                            served = True
+                            break
+                    if served:
+                        directions.append(direction)
+            self.phase_pair_ped_crossings[pair_idx] = directions
 
     def generate_config(self):
         print('GENERATING CONFIG')
