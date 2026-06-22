@@ -445,9 +445,9 @@ mdp_configs = {
         },
         'kbh_j9_442m': {
             'car_wait_weight': 1.0,
-            'bike_wait_weight': 0.7683, # was 1, then kept 1, was 74% of bike signal, then 0.3225 but still too much
-            'ped_wait_weight': 114.603, # was 1, was only .9% of reward signal, then 6.6864, then 99.7661
-            'norm_wait': 540.5, # was 224, 443.1 after mm but with new weights needs to be higher 1717.5, then 1413.5, with collisions solver, 
+            'bike_wait_weight': 0.1093, # was 1, then kept 1, was 74% of bike signal, then 0.3225 but still too much
+            'ped_wait_weight': 0.9332, # was 1, was only .9% of reward signal, then 6.6864, then 99.7661
+            'norm_wait':740.5, # was 224, 443.1 after mm but with new weights needs to be higher 1717.5, then 1413.5, with collisions solver, 
             'clip_wait': 3.0,
         }
     },
