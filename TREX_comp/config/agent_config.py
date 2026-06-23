@@ -198,9 +198,8 @@ agent_configs = {
     # TODO remove num_phase_pair explicitiness
     'MPLight_MM': {
             'agent': MPLight_MM,
-            'state': partial(states.mplight_mm, num_phase_pairs=len(signal_configs["kbh_j1_442m"]['phase_pairs'])),
-            'reward': partial(rewards.mplight_mm, w_bike=1.0, w_ped=1.0),
-            'reward': rewards.pressure,
+            'state': states.mplight_mm,
+            'reward': rewards.mplight_mm,
             'max_distance': 200,
             'BATCH_SIZE': 32,
             'GAMMA': 0.99,
@@ -208,8 +207,10 @@ agent_configs = {
             'EPS_END': 0.0,
             'EPS_DECAY': 220,
             'TARGET_UPDATE': 500,
-            'demand_shape': 1
+            'demand_shape': 2 # car and bike
         },
+
+    
     'FMA2C': {
         'agent': FMA2C,
         'state': states.fma2c,

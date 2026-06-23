@@ -202,6 +202,11 @@ class Signal:
         # Build stable phase → lane lookup tables.
         self._build_phase_lane_maps()
 
+        # MPLight MM: derive per-movement lane groups from this signal's
+        # own phase green/red structure (must run after _build_phase_lane_maps,
+        # since it reuses self._flat_inbound_lanes).
+        self._build_movement_index_map()
+
         # MPLight MM ped detection
         self.ped_detect_distance = float(
             signal_configs.get(map_name, {}).get('ped_detect_distance', 15.0)
@@ -250,6 +255,8 @@ class Signal:
                 if chosen is None and group[0]:
                     chosen = group[0][0] if len(group[0]) > 0 else None
                 flat_inbound.append(chosen)
+
+        self._flat_inbound_lanes = flat_inbound  # reused by _build_movement_index_map
 
         self.phase_lanes = {}
         self.phase_ped_lanes = {}
@@ -311,6 +318,152 @@ class Signal:
                     return downstream_signal
 
         return None
+
+    def _build_movement_index_map(self):
+        """Derive movement_index -> controlled-link lanes, fully from this
+        signal's own phase structure — no fixed direction taxonomy (no
+        'S-W'/'N-N' categories, no positional bucket formula), so this
+        generalizes to any intersection geometry, including joined or
+        irregular junctions and secondary satellite junctions folded into
+        the same TLS (e.g. a bike-crossing gate riding along on the main
+        4 phases, as in this map's screenshot).
+
+        WHY NOT signal.lane_sets: lane_sets always has up to 12 fixed
+        turn x approach-direction keys from generate_config(), but real
+        intersections vary in how many of those 12 are populated, and for
+        irregular junctions phase_pairs' indexing often doesn't
+        correspond to that scheme at all — confirmed directly against
+        J01: all 12 lane_sets directions were populated (no empties to
+        drop), yet phase_pairs only ever needs 9 movement indices. So
+        lane_sets simply isn't the right abstraction here.
+
+        THE RULE USED INSTEAD (validated against J01's actual 4
+        phase.state strings before writing this): a "movement" is a
+        distinct green/red pattern across this signal's own phases. For
+        each controlled-link position, build a tuple of which phases
+        it's green ('G'/'g') in. Two positions sharing a tuple always
+        turn green/red together, so FRAP can treat them as one movement.
+        Positions green in EVERY phase (always-on, e.g. a permitted right
+        turn never gated by signal phase) never compete for green time
+        and are excluded — FRAP's competition mask is about
+        mutually-exclusive movements. Positions green in NO real phase
+        (unused/phantom links) are also excluded. Each remaining distinct
+        signature becomes one movement index.
+
+        Verified against J01's pasted phase.state strings: 10 distinct
+        signatures total, 1 all-green (excluded), 0 all-red, leaving
+        exactly 9 — matching kbh_j1_442m's phase_pairs/num_movements.
+
+        Sets:
+            self.movement_index_map: dict[int -> tuple] — movement_index
+                -> the green-phase signature defining it, e.g. (1,0,0,1)
+                meaning "green in phase 0 and phase 3". A tuple rather
+                than a direction string, since there is no general
+                cardinal-direction label for an arbitrary signature on an
+                irregular junction.
+            self.movement_lanes: dict[int -> list[str]] — movement_index
+                -> controlled-link INBOUND lanes sharing that signature.
+                This is what the state fn sums queue/bike_queue over,
+                replacing signal.lane_sets[direction] from the earlier
+                approach.
+            self.movement_out_lanes: dict[int -> list[str]] — movement_index
+                -> the corresponding OUTBOUND lanes (the far side of the
+                same controlled-link position), derived directly from
+                getControlledLinks' (in_lane, out_lane) pairing — NOT from
+                lane_sets_outbound's direction-string matching, which uses
+                a different, unconnected vocabulary. This lets the state/
+                reward functions look up which lanes (and therefore which
+                downstream signal) receive traffic from each movement,
+                fully generally, to restore the inbound-minus-downstream
+                pressure term the original mplight() reward/state used.
+
+        Ordering (still requires your verification): movements are
+        numbered by each signature's FIRST occurrence position across
+        the phase strings (phase 0 before phase 1, left to right within a
+        phase). Deterministic and repeatable, but there is no way to
+        confirm from code alone that this matches the order phase_pairs'
+        0..K-1 indices were originally intended to mean — the printed
+        mapping below (signature AND lanes) is so you can check that
+        against the real intersection layout before trusting training
+        results.
+        """
+        flat_inbound = getattr(self, '_flat_inbound_lanes', None)
+        if flat_inbound is None:
+            raise RuntimeError(
+                "_build_movement_index_map requires _build_phase_lane_maps "
+                "to have run first (needs self._flat_inbound_lanes)."
+            )
+
+        # Outbound lane per position, mirroring flat_inbound's construction
+        # but taking the link's SECOND element (out_lane) instead of the
+        # first. Built fresh here (rather than reusing flat_inbound) since
+        # _build_phase_lane_maps only kept the inbound side.
+        raw_links = self.sumo.trafficlight.getControlledLinks(self.id)
+        flat_outbound = []
+        for group in raw_links:
+            if len(group) == 0:
+                flat_outbound.append(None)
+                continue
+            chosen = None
+            for link in group:
+                out_lane = link[1] if len(link) > 1 else None
+                if out_lane and not out_lane.startswith(':'):
+                    chosen = out_lane
+                    break
+            if chosen is None and group[0] and len(group[0]) > 1:
+                chosen = group[0][1]
+            flat_outbound.append(chosen)
+
+        num_phases = self.num_green_phases
+        signature_to_lanes = {}
+        signature_to_out_lanes = {}
+        signature_first_pos = {}
+
+        state_len = len(self.phases[0].state) if num_phases > 0 else 0
+        for pos in range(state_len):
+            lane = flat_inbound[pos] if pos < len(flat_inbound) else None
+            if lane is None or lane.startswith(':'):
+                continue  # phantom / internal connector — not a real approach lane
+
+            signature = tuple(
+                1 if (pos < len(self.phases[p].state) and self.phases[p].state[pos] in ('G', 'g')) else 0
+                for p in range(num_phases)
+            )
+
+            if sum(signature) == 0:
+                continue  # never green in any real phase
+            if sum(signature) == num_phases:
+                continue  # always green — uncontested, excluded from competition
+
+            if signature not in signature_to_lanes:
+                signature_to_lanes[signature] = []
+                signature_to_out_lanes[signature] = []
+                signature_first_pos[signature] = pos
+            if lane not in signature_to_lanes[signature]:
+                signature_to_lanes[signature].append(lane)
+
+            out_lane = flat_outbound[pos] if pos < len(flat_outbound) else None
+            if out_lane and not out_lane.startswith(':') and out_lane not in signature_to_out_lanes[signature]:
+                signature_to_out_lanes[signature].append(out_lane)
+
+        ordered_signatures = sorted(signature_to_lanes.keys(), key=lambda s: signature_first_pos[s])
+
+        self.movement_index_map = {i: sig for i, sig in enumerate(ordered_signatures)}
+        self.movement_lanes = {i: signature_to_lanes[sig] for i, sig in enumerate(ordered_signatures)}
+        self.movement_out_lanes = {i: signature_to_out_lanes[sig] for i, sig in enumerate(ordered_signatures)}
+
+        print(
+            f"[{self.id}] derived {len(self.movement_index_map)} movements from "
+            f"phase green-signatures: {self.movement_index_map}"
+        )
+        print(f"[{self.id}] movement -> inbound lanes: {self.movement_lanes}")
+        print(f"[{self.id}] movement -> outbound lanes: {self.movement_out_lanes}")
+        print(
+            f"[{self.id}] >>> VERIFY THIS against the real intersection layout "
+            f"before trusting training results — there is no way to confirm "
+            f"from code alone that this ordering matches what phase_pairs' "
+            f"indices were intended to mean."
+        )
 
     def _build_ped_crossing_groups(self):
         """Group pedestrian-controlled edges into per-direction 'crossings'.
