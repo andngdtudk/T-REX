@@ -1,0 +1,50 @@
+============================================================
+  norm_wait / clip_wait calibration report
+============================================================
+
+Dataset : 24,438 step-deltas across 34 episodes
+
+Per-step |Δ combined_wait| distribution:
+  mean :        477.1
+  std  :        500.5
+  p50  :        372.0
+  p75  :        540.5  ← recommended norm_wait
+  p90  :        863.0
+  p95  :       1401.1
+  p99  :       2672.1
+
+Mean accumulated wait per step:
+  car  :       2869.1
+  bike :       3734.2  (1.3x car)
+  ped  :         25.0  (0.01x car)
+
+--- Recommended mdp_configs entry ---
+
+'IDQN_MM2': {
+    # --- calibrated from run data ---
+    'norm_wait'        : 540.5,
+    'clip_wait'        : 3.0,
+
+    # Option A: equal weights, larger norm  (simpler, try first)
+    'car_wait_weight'  : 1.0,
+    'bike_wait_weight' : 1.0,
+    'ped_wait_weight'  : 1.0,
+
+    # Option B: balanced weights so each mode contributes equally to reward
+    # 'car_wait_weight'  : 1.0,
+    # 'bike_wait_weight' : 0.7683,   # down-weights bike by 1.3x
+    # 'ped_wait_weight'  : 114.603,
+},
+
+--- What this fixes ---
+Current norm_wait=224 → typical delta (540) / 224 = 2.4x clip limit.
+Every reward is clipped to ±3.0; the agent sees only a binary signal.
+
+New norm_wait=540.5 → typical delta normalises to ~1.0 before clipping.
+clip_wait=3.0 keeps the ±4 headroom for outlier steps.
+
+If you want to reduce bike dominance, use Option B weights.
+Bike currently contributes 56% of combined wait;
+balanced weights bring it to ~33%.
+
+============================================================
