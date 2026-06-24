@@ -490,6 +490,10 @@ def mplight_mm(signals):
     pressure at the next intersection the way a vehicle queue does, so we
     don't apply the same upstream-minus-downstream logic here.
     """
+
+    W_BIKE = mdp_configs.get('W_BIKE', 1.0)
+    W_PED = mdp_configs.get('W_PED', 1.0)
+
     rewards = dict()
     for signal_id in signals:
         signal = signals[signal_id]

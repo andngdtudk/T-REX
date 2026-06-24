@@ -158,27 +158,30 @@ class Signal:
                     else:
                         self.inbounds_fr_direction[inbound_fr_direction] = [lane]
                     if lane not in self.lanes: self.lanes.append(lane)
-
-            # Populate outbound lane information
-            self.out_lane_to_signalid = dict()
-            for direction in self.downstream:
-                dwn_signal = self.downstream[direction]
-                if dwn_signal is not None:  # A downstream intersection exists
-                    dwn_lane_sets = myconfig[dwn_signal]['lane_sets']    # Get downstream signal's lanes
-                    for key in dwn_lane_sets:   # Find all inbound lanes from upstream
-                        if key.split('-')[0] == direction:    # Downstream direction matches
-                            dwn_lane_set = dwn_lane_sets[key]
-                            if dwn_lane_set is None: raise Exception('Invalid signal config')
-                            for lane in dwn_lane_set:
-                                if lane not in self.outbound_lanes: self.outbound_lanes.append(lane)
-                                self.out_lane_to_signalid[lane] = dwn_signal
-                                for selfkey in self.lane_sets:
-                                    if selfkey.split('-')[1] == key.split('-')[0]:    # Out dir. matches dwnstrm in dir.
-                                        self.lane_sets_outbound[selfkey] += dwn_lane_set
-            for key in self.lane_sets_outbound:  # Remove duplicates
-                self.lane_sets_outbound[key] = list(set(self.lane_sets_outbound[key]))
         else:
             self.generate_config()
+
+        # Populate outbound lane information (self.outbound_lanes,
+        # self.out_lane_to_signalid, self.lane_sets_outbound) the SAME
+        # way regardless of which branch above ran. The original code
+        # only built this inside the "loaded from signal_configs" branch,
+        # by matching myconfig[downstream_signal]['lane_sets'] direction
+        # strings against self.lane_sets — which (a) silently left these
+        # attributes UNSET for any signal that took the generate_config()
+        # path (the bug this fixes: AttributeError on
+        # out_lane_to_signalid), and (b) even where it "worked", depended
+        # on the downstream signal already being present in
+        # signal_configs with a 'lane_sets' key, which isn't guaranteed
+        # if signals are constructed one at a time and the downstream
+        # neighbor hasn't run generate_config() yet either.
+        #
+        # This replacement derives the same information directly from
+        # SUMO's own controlled-link graph (getControlledLinks' in/out
+        # lane pairing + _build_inbound_lane_to_signal_map, which queries
+        # SUMO for every TLS regardless of Python-side construction
+        # order) — fully general, no dependency on lane_sets direction
+        # vocabulary or on other Signal objects already existing.
+        self._build_outbound_lane_map()
 
         self.waiting_times = dict()     # SUMO's WaitingTime and AccumulatedWaiting are both wrong for multiple signals
 
@@ -319,6 +322,97 @@ class Signal:
 
         return None
 
+    def _build_outbound_lane_map(self):
+        """Populate self.outbound_lanes and self.out_lane_to_signalid
+        directly from SUMO's controlled-link graph, independent of
+        lane_sets direction vocabulary and independent of whether other
+        Signal objects have finished constructing yet.
+
+        Fixes: the original code only built these two attributes inside
+        the "loaded from signal_configs" branch of __init__, by matching
+        direction-string keys between self.lane_sets and the downstream
+        signal's myconfig[...]['lane_sets'] entry. Any signal taking the
+        generate_config() branch never got these attributes set at all —
+        surfaced as `AttributeError: 'Signal' object has no attribute
+        'out_lane_to_signalid'` the first time a state/reward function
+        that reads it runs (this includes vanilla mplight()/pressure()
+        too, not just mplight_mm() — they read the same attributes).
+
+        General approach: for every controlled-link position of THIS
+        signal, take its (in_lane, out_lane) pair from getControlledLinks
+        directly. If out_lane is itself controlled by some OTHER traffic
+        light (found via _build_inbound_lane_to_signal_map, which queries
+        SUMO's full TLS list — not Python-side Signal objects), that
+        out_lane is one of this signal's outbound_lanes, and that other
+        TLS is its owner in out_lane_to_signalid. No dependency on
+        lane_sets, no dependency on construction order.
+
+        Also rebuilds self.lane_sets_outbound, grouping each outbound lane
+        under the SAME direction key as the inbound lane sharing its
+        controlled-link position (so existing code reading
+        lane_sets_outbound[direction] still works) — this is best-effort
+        bookkeeping for direction-keyed consumers; movement-indexed
+        consumers (mplight_mm's state fn) should prefer
+        self.movement_out_lanes instead, which doesn't go through this
+        direction-string detour at all.
+        """
+        self.outbound_lanes = []
+        self.out_lane_to_signalid = dict()
+        self.lane_sets_outbound = {direction: [] for direction in getattr(self, 'lane_sets', {})}
+
+        lane_to_signal = self._build_inbound_lane_to_signal_map()
+        links = self.sumo.trafficlight.getControlledLinks(self.id)
+
+        # Map each inbound lane to the lane_sets direction key it belongs
+        # to, so outbound lanes sharing that position can be filed under
+        # the same direction (best-effort; only meaningful if lane_sets
+        # is direction-keyed, which it is for both __init__ branches).
+        #
+        # KNOWN LIMITATION, confirmed against real data: on irregular/
+        # joined junctions (e.g. J01 on kbh_j1_442m), generate_config()'s
+        # `index = int(i / 3)` bucketing can file the SAME lane under
+        # TWO different direction keys (observed directly: J01's printed
+        # lane_sets has lanes like '01.01#O0_1' appearing in both 'S-S'
+        # and 'S-E'). When that happens here, whichever direction is
+        # iterated last in this loop silently "wins" the tag — arbitrary,
+        # not geometrically meaningful. This only affects the BEST-EFFORT
+        # self.lane_sets_outbound bookkeeping below; it does NOT affect
+        # mplight_mm's state function, which uses self.movement_lanes /
+        # self.movement_out_lanes instead (derived from phase
+        # green-signatures, not from this direction taxonomy, precisely
+        # because the taxonomy breaks down on irregular junctions like
+        # this one). If something else in your codebase still reads
+        # lane_sets_outbound[direction] for J01-like signals, treat its
+        # output as unreliable.
+        inbound_lane_to_direction = {}
+        for direction, lanes in getattr(self, 'lane_sets', {}).items():
+            for lane in lanes:
+                inbound_lane_to_direction[lane] = direction
+
+        for link_group in links:
+            if len(link_group) == 0:
+                continue
+            for link in link_group:
+                if len(link) < 2:
+                    continue
+                in_lane, out_lane = link[0], link[1]
+                if in_lane is None or out_lane is None:
+                    continue
+                if in_lane.startswith(':') or out_lane.startswith(':'):
+                    continue
+
+                dwn_signal = lane_to_signal.get(out_lane)
+                if dwn_signal is None or dwn_signal == self.id:
+                    continue  # not controlled by a downstream TLS, or loops back to self
+
+                if out_lane not in self.outbound_lanes:
+                    self.outbound_lanes.append(out_lane)
+                self.out_lane_to_signalid[out_lane] = dwn_signal
+
+                direction = inbound_lane_to_direction.get(in_lane)
+                if direction is not None and out_lane not in self.lane_sets_outbound[direction]:
+                    self.lane_sets_outbound[direction].append(out_lane)
+
     def _build_movement_index_map(self):
         """Derive movement_index -> controlled-link lanes, fully from this
         signal's own phase structure — no fixed direction taxonomy (no
@@ -337,22 +431,50 @@ class Signal:
         drop), yet phase_pairs only ever needs 9 movement indices. So
         lane_sets simply isn't the right abstraction here.
 
-        THE RULE USED INSTEAD (validated against J01's actual 4
-        phase.state strings before writing this): a "movement" is a
-        distinct green/red pattern across this signal's own phases. For
-        each controlled-link position, build a tuple of which phases
-        it's green ('G'/'g') in. Two positions sharing a tuple always
-        turn green/red together, so FRAP can treat them as one movement.
-        Positions green in EVERY phase (always-on, e.g. a permitted right
-        turn never gated by signal phase) never compete for green time
-        and are excluded — FRAP's competition mask is about
-        mutually-exclusive movements. Positions green in NO real phase
-        (unused/phantom links) are also excluded. Each remaining distinct
-        signature becomes one movement index.
+        THE RULE USED INSTEAD: a "movement" is a distinct green/red
+        pattern across this signal's own phases. For each controlled-link
+        position, build a tuple of which phases it's green ('G'/'g') in.
+        Two positions sharing a tuple always turn green/red together, so
+        FRAP can treat them as one movement. Positions green in NO real
+        phase (unused/phantom links) are excluded — they're not a
+        movement at all. Each remaining distinct signature becomes one
+        movement index.
 
-        Verified against J01's pasted phase.state strings: 10 distinct
-        signatures total, 1 all-green (excluded), 0 all-red, leaving
-        exactly 9 — matching kbh_j1_442m's phase_pairs/num_movements.
+        *** ALWAYS-GREEN POSITIONS (signature = green in every phase) ***
+        An earlier version of this method excluded these outright as
+        "uncontested". That was tested against J01's REAL SUMO phase data
+        (not just the hand-typed strings used during initial development)
+        and found to be WRONG for this intersection: J01 has two distinct
+        always-green links — one on the main junction ('01.01#N0_1') and
+        one on the satellite junction ('01.02#S0_1', the bike-crossing
+        gate's companion lane from the screenshot). Excluding both
+        produced only 8 movements, but phase_pairs references index 8,
+        requiring 9. At least one of these always-green links is a real,
+        meaningful movement for this model — it just happens to never be
+        gated by THIS signal's 4 phases (e.g. one side of a bike/car
+        crossing permission that's structurally always-allowed).
+
+        There's no way to tell from phase.state alone which case applies
+        (truly-uncontested-and-irrelevant vs always-on-but-meaningful) —
+        that's a judgment about traffic semantics, not a green/red
+        pattern. So this method does NOT exclude always-green positions
+        by default: they get grouped into their own movement(s) like any
+        other signature (all all-green positions share the same all-1s
+        signature, so they're grouped together as ONE additional
+        movement unless you tell this method otherwise). For J01 this
+        produces 8 (already-distinct) + 1 (merged all-green) = 9,
+        matching phase_pairs.
+
+        *** THIS IS STILL A SIMPLIFICATION, NOT A VERIFIED ANSWER ***
+        Merging '01.01#N0_1' (main junction) and '01.02#S0_1' (satellite
+        junction) into the same movement index just because they share a
+        signature may or may not be semantically correct — they're
+        physically different links. The printed output below lists the
+        always-green group's lanes explicitly so you can check whether
+        that merge is acceptable, or whether phase_pairs intended these
+        as two separate movements (in which case you'd need to tell me
+        how to split them — there's no automatic way to do so from
+        phase.state alone).
 
         Sets:
             self.movement_index_map: dict[int -> tuple] — movement_index
@@ -360,7 +482,9 @@ class Signal:
                 meaning "green in phase 0 and phase 3". A tuple rather
                 than a direction string, since there is no general
                 cardinal-direction label for an arbitrary signature on an
-                irregular junction.
+                irregular junction. The all-green group, if present, uses
+                a signature of all 1s (e.g. (1,1,1,1) for a 4-phase
+                signal).
             self.movement_lanes: dict[int -> list[str]] — movement_index
                 -> controlled-link INBOUND lanes sharing that signature.
                 This is what the state fn sums queue/bike_queue over,
@@ -380,12 +504,16 @@ class Signal:
         Ordering (still requires your verification): movements are
         numbered by each signature's FIRST occurrence position across
         the phase strings (phase 0 before phase 1, left to right within a
-        phase). Deterministic and repeatable, but there is no way to
-        confirm from code alone that this matches the order phase_pairs'
-        0..K-1 indices were originally intended to mean — the printed
-        mapping below (signature AND lanes) is so you can check that
-        against the real intersection layout before trusting training
-        results.
+        phase), with the always-green group (if present) placed LAST
+        regardless of position — since "always on" doesn't have a
+        natural position in the competing-phase ordering, and putting it
+        last avoids disturbing the relative order of the genuinely
+        phase-varying movements you already verified. There is still no
+        way to confirm from code alone that this matches the order
+        phase_pairs' 0..K-1 indices were originally intended to mean —
+        the printed mapping below (signature AND lanes) is so you can
+        check that against the real intersection layout before trusting
+        training results.
         """
         flat_inbound = getattr(self, '_flat_inbound_lanes', None)
         if flat_inbound is None:
@@ -418,6 +546,7 @@ class Signal:
         signature_to_lanes = {}
         signature_to_out_lanes = {}
         signature_first_pos = {}
+        all_green_signature = tuple([1] * num_phases) if num_phases > 0 else tuple()
 
         state_len = len(self.phases[0].state) if num_phases > 0 else 0
         for pos in range(state_len):
@@ -431,9 +560,14 @@ class Signal:
             )
 
             if sum(signature) == 0:
-                continue  # never green in any real phase
-            if sum(signature) == num_phases:
-                continue  # always green — uncontested, excluded from competition
+                continue  # never green in any real phase — not a movement at all
+
+            # NOTE: always-green (signature == all 1s) is intentionally
+            # NOT excluded here — see docstring above for why an earlier
+            # version's exclusion was tested against real J01 data and
+            # found to drop a meaningful movement (8 vs the required 9).
+            # All always-green positions are grouped together under
+            # all_green_signature, same as any other shared signature.
 
             if signature not in signature_to_lanes:
                 signature_to_lanes[signature] = []
@@ -446,7 +580,15 @@ class Signal:
             if out_lane and not out_lane.startswith(':') and out_lane not in signature_to_out_lanes[signature]:
                 signature_to_out_lanes[signature].append(out_lane)
 
-        ordered_signatures = sorted(signature_to_lanes.keys(), key=lambda s: signature_first_pos[s])
+        # Order: phase-varying signatures by first occurrence, with the
+        # always-green group (if present) placed last.
+        varying_signatures = sorted(
+            (s for s in signature_to_lanes if s != all_green_signature),
+            key=lambda s: signature_first_pos[s],
+        )
+        ordered_signatures = varying_signatures
+        if all_green_signature in signature_to_lanes:
+            ordered_signatures = varying_signatures + [all_green_signature]
 
         self.movement_index_map = {i: sig for i, sig in enumerate(ordered_signatures)}
         self.movement_lanes = {i: signature_to_lanes[sig] for i, sig in enumerate(ordered_signatures)}
@@ -458,6 +600,18 @@ class Signal:
         )
         print(f"[{self.id}] movement -> inbound lanes: {self.movement_lanes}")
         print(f"[{self.id}] movement -> outbound lanes: {self.movement_out_lanes}")
+        if all_green_signature in signature_to_lanes:
+            always_green_idx = ordered_signatures.index(all_green_signature)
+            print(
+                f"[{self.id}] *** movement {always_green_idx} is an ALWAYS-GREEN "
+                f"group (green in every one of this signal's {num_phases} phases) — "
+                f"its lanes are {signature_to_lanes[all_green_signature]}. These "
+                f"lanes are merged into ONE movement just because they share a "
+                f"signature, which may not be semantically correct if they're "
+                f"physically unrelated links (e.g. one on the main junction, one "
+                f"on a satellite junction). VERIFY this merge is acceptable before "
+                f"trusting training results."
+            )
         print(
             f"[{self.id}] >>> VERIFY THIS against the real intersection layout "
             f"before trusting training results — there is no way to confirm "
