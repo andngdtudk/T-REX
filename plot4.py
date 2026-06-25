@@ -18,7 +18,7 @@ METRICS = ("duration", "waitingTime", "timeLoss")
 PED_METRICS = {"duration", "waitingTime", "timeLoss"}  # fields available on personinfo
 
 # If True, skip trips that are not finished (arrival == -1 or vaporized == "end").
-SKIP_UNFINISHED = True
+SKIP_UNFINISHED = False
 
 # Window (in seconds) used as the denominator for throughput calculations.
 # throughput = (# arrivals in epoch) / (EPOCH_DURATION_SECONDS / 3600)
