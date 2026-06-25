@@ -46,3 +46,6 @@ pmt/
 *.py[cod]
 *$py.class
 *.pyc
+*/*/*/__pycache__/
+*/*/__pycache__/
+*/__pycache__/

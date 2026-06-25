@@ -161,8 +161,6 @@ class DQNAgent(Agent):
                                    phi=lambda x: np.asarray(x, dtype=np.float32),
                                    target_update_interval=config['TARGET_UPDATE']*num_agents,
                                    update_interval=num_agents,
-                                   # added max_grad_norm for stability
-                                   max_grad_norm=config.get('MAX_GRAD_NORM', 10.0),
                                    )
         else:
             self.agent = DQN(self.model, self.optimizer, replay_buffer,
@@ -170,7 +168,7 @@ class DQNAgent(Agent):
                              minibatch_size=config['BATCH_SIZE'], replay_start_size=config['BATCH_SIZE'],
                              phi=lambda x: np.asarray(x, dtype=np.float32),
                              target_update_interval=config['TARGET_UPDATE'],
-                             # idem
+                             # added max_grad_norm for stability
                              max_grad_norm=config.get('MAX_GRAD_NORM', 10.0),
                              )
 

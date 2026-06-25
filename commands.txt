@@ -3,6 +3,9 @@ source ~/.bashrc
 
 source pmt/bin/activate
 
+OR
+source ~/venvs/pmt/bin/activate
+
 python -c "
 import site, os
 sp = site.getsitepackages()[0]

@@ -473,6 +473,54 @@ def pressure(signals):
         rewards[signal_id] = -queue_length
     return rewards
 
+def mplight_mm(signals):
+    """Traffic-pressure reward extended with bike and pedestrian pressure.
+ 
+    reward = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
+ 
+    car_pressure / bike_pressure: same inbound-minus-downstream queue
+    pressure as the original mplight reward, split by vehicle class using
+    the 'queue' / 'bike_queue' lane fields.
+ 
+    ped_pressure: sum over all of this signal's pedestrian crossings of
+    signal.ped_crossing_pressure[direction] (approaching-minus-leaving,
+    camera-style, see Signal._collect_ped_crossing_pressure). Unlike the
+    vehicle terms there's no "downstream signal" to subtract for
+    pedestrians — crossing a leg of THIS intersection doesn't create
+    pressure at the next intersection the way a vehicle queue does, so we
+    don't apply the same upstream-minus-downstream logic here.
+    """
+
+    W_BIKE = mdp_configs.get('W_BIKE', 1.0)
+    W_PED = mdp_configs.get('W_PED', 1.0)
+
+    rewards = dict()
+    for signal_id in signals:
+        signal = signals[signal_id]
+ 
+        car_pressure = 0.0
+        bike_pressure = 0.0
+        for lane in signal.lanes:
+            lane_obs = signal.full_observation[lane]
+            total_queue = lane_obs['queue']
+            bike_queue = lane_obs.get('bike_queue', 0)
+            car_pressure += (total_queue - bike_queue)
+            bike_pressure += bike_queue
+ 
+        for lane in signal.outbound_lanes:
+            dwn_signal = signal.out_lane_to_signalid[lane]
+            if dwn_signal in signal.signals:
+                dwn_obs = signal.signals[dwn_signal].full_observation[lane]
+                dwn_total = dwn_obs['queue']
+                dwn_bike = dwn_obs.get('bike_queue', 0)
+                car_pressure -= (dwn_total - dwn_bike)
+                bike_pressure -= dwn_bike
+ 
+        ped_pressure = sum(getattr(signal, 'ped_crossing_pressure', {}).values())
+ 
+        rewards[signal_id] = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
+    return rewards
+
 
 def queue_maxwait(signals):
     """MA2C local reward combining queue length and max waiting penalty.

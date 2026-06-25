@@ -1,3 +1,5 @@
+from functools import partial
+from TREX_comp.config.signal_config import signal_configs
 import TREX_comp.rewards as rewards
 import TREX_comp.states as states
 
@@ -7,6 +9,7 @@ from TREX_comp.agents.maxpressure import MAXPRESSURE
 from TREX_comp.agents.pfrl_dqn import IDQN
 from TREX_comp.agents.pfrl_ppo import IPPO
 from TREX_comp.agents.mplight import MPLight
+from TREX_comp.agents.mplight_mm import MPLight_MM
 from TREX_comp.agents.fma2c import FMA2C
 
 agent_configs = {
@@ -191,6 +194,23 @@ agent_configs = {
         'TARGET_UPDATE': 500,
         'demand_shape': 1
     },
+
+    # TODO remove num_phase_pair explicitiness
+    'MPLight_MM': {
+            'agent': MPLight_MM,
+            'state': states.mplight_mm,
+            'reward': rewards.mplight_mm,
+            'max_distance': 200,
+            'BATCH_SIZE': 32,
+            'GAMMA': 0.99,
+            'EPS_START': 1.0,
+            'EPS_END': 0.0,
+            'EPS_DECAY': 220,
+            'TARGET_UPDATE': 500,
+            'demand_shape': 2 # car and bike
+        },
+
+    
     'FMA2C': {
         'agent': FMA2C,
         'state': states.fma2c,

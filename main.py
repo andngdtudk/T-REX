@@ -34,7 +34,7 @@ def parse_arguments():
                         choices=['STOCHASTIC', 'MAXWAVE', 'MAXPRESSURE',
                                  'IDQN', "IDQN_MULTIMODAL", 'IDQN_DELTA', 'IDQN_DELTASCALE', 'IDQN_DELTASCLIP', 'IDQN_DELTAVAR',
                                  'IDQN_MM2',
-                                 'IPPO', 'MPLight', 'MA2C', 'FMA2C',
+                                 'IPPO', 'MPLight', 'MA2C', 'FMA2C', "MPLight_MM",
                                  'MPLightFULL', 'FMA2CFull', 'FMA2CVAL'],
                         help="Choose the RL-based or rule-based agent to run.")
                         # TODO: fix MA2C

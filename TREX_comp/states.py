@@ -1,6 +1,7 @@
 import numpy as np
 
 from TREX_comp.config.mdp_config import mdp_configs
+from TREX_comp.config.signal_config import signal_configs
 
 
 #region Resolve FMA config
@@ -360,6 +361,117 @@ def mplight_full(signals):
         observations[signal_id] = np.asarray(obs)
     return observations
 
+def mplight_mm(signals):
+    """MPLight state function extended with bike and pedestrian demand.
+ 
+    Same call signature as the original mplight(signals) — no extra
+    arguments.
+ 
+    MOVEMENT INDEXING: Signal._build_movement_index_map() (see signals.py)
+    derives movements directly from this signal's own phase green/red
+    structure — NOT from signal.lane_sets' fixed 'N-N'/'S-W' direction
+    taxonomy, and NOT from a fixed positional-bucket formula. Two
+    controlled-link positions belong to the same movement iff they're
+    green in exactly the same set of phases; always-green (uncontested)
+    and always-red (unused) positions are excluded. This generalizes to
+    any intersection geometry, including joined/irregular junctions and
+    secondary satellite junctions folded into the same TLS — verified
+    directly against a real 4-phase, 9-movement intersection (J01 on
+    kbh_j1_442m) before being written.
+ 
+    Per signal, the observation vector is laid out as:
+ 
+        [phase,
+         m0_car_pressure, m0_bike_pressure,
+         m1_car_pressure, m1_bike_pressure,
+         ...,
+         p0_ped_pressure, p1_ped_pressure, ..., p{N-1}_ped_pressure]
+ 
+    Movement count varies per signal/map (len(signal.movement_index_map)
+    — 9 for kbh_j1_442m's J01); set num_movements for FRAP_MM/MPLight_MM
+    to match. Pedestrian block length is the GLOBAL num_phase_pairs
+    (N = len(signal_configs[map]['phase_pairs'])), zero-padded for any
+    phase pair this signal doesn't use, since MPLight_MM is a SharedAgent
+    and every signal's vector must batch together at equal length.
+ 
+    car_pressure / bike_pressure: inbound queue pressure for this
+    movement's lanes (signal.movement_lanes[i]), MINUS the queue already
+    building up on the corresponding downstream signal's lanes
+    (signal.movement_out_lanes[i]) — same inbound-minus-downstream
+    pressure concept as the original mplight()/pressure reward, but
+    sourced from movement_out_lanes (derived directly from
+    getControlledLinks' in/out lane pairing) instead of
+    lane_sets_outbound (which uses the unrelated direction-string
+    vocabulary and doesn't correspond to this movement indexing).
+ 
+    ped_pressure for phase_pair i = sum of signal.ped_crossing_pressure[d]
+    for every crossing direction d served during that phase pair (per
+    Signal._build_phase_pair_ped_crossings).
+ 
+    Requires Signal to expose (see signals.py):
+        - signal.movement_index_map: dict[int -> signature tuple]
+        - signal.movement_lanes: dict[int -> list[str]] (inbound)
+        - signal.movement_out_lanes: dict[int -> list[str]] (outbound)
+        - signal.out_lane_to_signalid: dict[lane -> signal_id] (already
+          built in Signal.__init__ from the lane_sets_outbound block —
+          still valid here since it's just "which signal owns this lane",
+          independent of which vocabulary identified the lane)
+        - signal.phase_pair_ped_crossings, signal.ped_crossing_pressure
+    """
+    observations = dict()
+    for signal_id in signals:
+        signal = signals[signal_id]
+        obs = [signal.phase]
+ 
+        movement_lanes = getattr(signal, 'movement_lanes', None)
+        if movement_lanes is None:
+            raise ValueError(
+                f"signal '{signal_id}' has no movement_lanes — apply the "
+                f"_build_movement_index_map() patch to Signal.__init__ "
+                f"(must run after _build_phase_lane_maps)."
+            )
+        movement_out_lanes = getattr(signal, 'movement_out_lanes', {})
+        num_movements = len(movement_lanes)
+ 
+        for movement_idx in range(num_movements):
+            car_pressure = 0
+            bike_pressure = 0
+            for lane in movement_lanes.get(movement_idx, []):
+                lane_obs = signal.full_observation[lane]
+                total_queue = lane_obs['queue']
+                bike_queue = lane_obs.get('bike_queue', 0)
+                car_pressure += (total_queue - bike_queue)
+                bike_pressure += bike_queue
+ 
+            for out_lane in movement_out_lanes.get(movement_idx, []):
+                dwn_signal = signal.out_lane_to_signalid.get(out_lane)
+                if dwn_signal in signal.signals:
+                    dwn_full_obs = signal.signals[dwn_signal].full_observation
+                    if out_lane in dwn_full_obs:
+                        dwn_obs = dwn_full_obs[out_lane]
+                        dwn_total = dwn_obs['queue']
+                        dwn_bike = dwn_obs.get('bike_queue', 0)
+                        car_pressure -= (dwn_total - dwn_bike)
+                        bike_pressure -= dwn_bike
+ 
+            obs.append(car_pressure)
+            obs.append(bike_pressure)
+ 
+        # Pedestrian context, one scalar per GLOBAL phase_pair index for
+        # this signal's map. Phase pairs this signal doesn't actually use
+        # (not in its valid_acts) stay zero.
+        num_phase_pairs = len(signal_configs[signal.map_name]['phase_pairs'])
+        ped_block = np.zeros(num_phase_pairs, dtype=np.float32)
+        crossing_pressure = getattr(signal, 'ped_crossing_pressure', {})
+        for pair_idx, directions in getattr(signal, 'phase_pair_ped_crossings', {}).items():
+            if pair_idx >= num_phase_pairs:
+                continue
+            ped_block[pair_idx] = sum(crossing_pressure.get(d, 0.0) for d in directions)
+ 
+        obs.extend(ped_block.tolist())
+        observations[signal_id] = np.asarray(obs, dtype=np.float32)
+    return observations
+    
 #endregion
 #============================================================================================
 #region Wave
