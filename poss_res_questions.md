@@ -4,8 +4,8 @@
 
 - Benchmark against baselines when using the relative proportion of people using different modes -> weights
 
-- Can the TSC method devised and trained for a single scenario be easily adapted for a different one? (e.g. Does a multimodal IDQN policy trained on one scenario transfer to others with different lane configurations, phase counts, or modal share?)
-    - Train on kbh_j1_442m, evaluate zero-shot on structurally different intersections/network and compare against training each intersection from scratch. Metric: performance retention ratio (transferred reward / from-scratch reward) per mode.
+- Can the TSC method devised and trained for a single scenario be easily adapted for a different one? (different lane configurations, phase counts, or modal share?)
+    - Train on kbh_j1_442m, evaluate zero-shot on structurally different intersections/network and compare against training each intersection from scratch. Measure performance retention ratio (transferred reward / from-scratch reward) per mode.
 
 - IDQN: Does the lane-wise state architecture (vs. the original Conv2d) generalize the benefits, or was it specific to this network's feature heterogeneity (multimodality)?
     - Train both on the car only and the multimodal, compare performance
