@@ -3,6 +3,7 @@ from time import sleep
 from unittest import signals
 
 import numpy as np
+import csv
 
 from TREX_comp.config.mdp_config import mdp_configs
 import traci
@@ -473,7 +474,20 @@ def pressure(signals):
         rewards[signal_id] = -queue_length
     return rewards
 
-def mplight_mm(signals):
+_PRESSURE_LOG_PATH = "pressure_log.csv"
+_pressure_log_initialized = False
+
+def _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure_raw, step):
+    global _pressure_log_initialized
+    mode = 'a' if _pressure_log_initialized else 'w'
+    with open(_PRESSURE_LOG_PATH, mode, newline='') as f:
+        writer = csv.writer(f)
+        if not _pressure_log_initialized:
+            writer.writerow(['step', 'signal_id', 'car_pressure', 'bike_pressure', 'ped_pressure_raw'])
+            _pressure_log_initialized = True
+        writer.writerow([step, signal_id, car_pressure, bike_pressure, ped_pressure_raw])
+
+def mplight_mm(signals, step):
     """Traffic-pressure reward extended with bike and pedestrian pressure.
  
     reward = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
@@ -496,6 +510,7 @@ def mplight_mm(signals):
 
     rewards = dict()
     for signal_id in signals:
+        
         signal = signals[signal_id]
  
         car_pressure = 0.0
@@ -517,10 +532,10 @@ def mplight_mm(signals):
                 bike_pressure -= dwn_bike
  
         ped_pressure = sum(getattr(signal, 'ped_crossing_pressure', {}).values())
+        _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step)
  
         rewards[signal_id] = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
     return rewards
-
 
 def queue_maxwait(signals):
     """MA2C local reward combining queue length and max waiting penalty.
