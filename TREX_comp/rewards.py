@@ -487,7 +487,10 @@ def _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure_raw, ste
             _pressure_log_initialized = True
         writer.writerow([step, signal_id, car_pressure, bike_pressure, ped_pressure_raw])
 
-def mplight_mm(signals):
+W_BIKE = mdp_configs.get('W_BIKE', 1.0)
+W_PED = mdp_configs.get('W_PED', 1.0)
+
+def mplight_mm(signals, step):
     """Traffic-pressure reward extended with bike and pedestrian pressure.
  
     reward = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
@@ -535,6 +538,8 @@ def mplight_mm(signals):
                 bike_pressure -= dwn_bike
  
         ped_pressure = sum(getattr(signal, 'ped_crossing_pressure', {}).values())
+
+        _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step)
  
         rewards[signal_id] = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
     return rewards

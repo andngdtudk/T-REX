@@ -236,16 +236,6 @@ class BaseEnv(gym.Env):
         for signal in self.signal_ids:
             self.signals[signal].observe(self.step_length, self.max_distance)
 
-        # DEBUG
-        #for signal_id, signal in self.signals.items():
-
-            # print(f"--- time {self.sumo.simulation.getTime()} ped pressure check for {signal_id} ---")
-            # seen_edges = set()
-            # for crossing_id, crossing in signal.ped_crossings.items():
-            #     print(signal.ped_crossing_pressure[crossing_id])
-
-        print(f"--- time {self.sumo.simulation.getTime()}, current position of ped0_14: {self.sumo.person.getRoadID('ped0_14')} ---")
-
         # observe new state and reward
         observations = self.state_fn(self.signals)
         rewards = self.reward_fn(self.signals, step)
