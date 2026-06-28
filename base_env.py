@@ -225,12 +225,26 @@ class BaseEnv(gym.Env):
 
         for step in range(self.yellow_length):
             self.step_sim()
+            print(f"--- calling at {self.sumo.simulation.getTime()} ped edge check for yellow phase ---")
+            self._poll_ped_crossings_all()
         for signal in self.signal_ids:
             self.signals[signal].set_phase()
         for step in range(self.step_length - self.yellow_length):
             self.step_sim()
+            print(f"--- calling at {self.sumo.simulation.getTime()} ped edge check for green phase ---")
+            self._poll_ped_crossings_all()
         for signal in self.signal_ids:
             self.signals[signal].observe(self.step_length, self.max_distance)
+
+        # DEBUG
+        #for signal_id, signal in self.signals.items():
+
+            # print(f"--- time {self.sumo.simulation.getTime()} ped pressure check for {signal_id} ---")
+            # seen_edges = set()
+            # for crossing_id, crossing in signal.ped_crossings.items():
+            #     print(signal.ped_crossing_pressure[crossing_id])
+
+        print(f"--- time {self.sumo.simulation.getTime()}, current position of ped0_14: {self.sumo.person.getRoadID('ped0_14')} ---")
 
         # observe new state and reward
         observations = self.state_fn(self.signals)
@@ -247,6 +261,25 @@ class BaseEnv(gym.Env):
             return obss, rww, [done], {'eps': self.run}
 
         return observations, rewards, done, {'eps': self.run}
+
+    def _poll_ped_crossings_all(self):
+        """Call signal.poll_ped_crossings() for every signal that has
+        it, once per SUMO simulationStep(). Needed because
+        getLastStepPersonIDs() only reflects the single most recent
+        substep — see signals.py's poll_ped_crossings()/
+        _collect_ped_crossing_pressure() docstrings for the confirmed
+        bug this fixes (pedestrian pressure was always exactly 0.0
+        despite pedestrians being visibly present, because the OLD
+        single-sample-at-end-of-window approach could miss anyone who
+        crossed earlier in the window).
+ 
+        Guarded with hasattr so this doesn't break on a Signal subclass
+        / map that hasn't been updated with ped crossing support.
+        """
+        for signal_id in self.signal_ids:
+            signal = self.signals[signal_id]
+            if hasattr(signal, 'poll_ped_crossings'):
+                signal.poll_ped_crossings()
 
     def calc_metrics(self, rewards):
         queue_lengths = dict()

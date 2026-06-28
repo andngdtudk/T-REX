@@ -487,7 +487,7 @@ def _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure_raw, ste
             _pressure_log_initialized = True
         writer.writerow([step, signal_id, car_pressure, bike_pressure, ped_pressure_raw])
 
-def mplight_mm(signals, step):
+def mplight_mm(signals):
     """Traffic-pressure reward extended with bike and pedestrian pressure.
  
     reward = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
@@ -496,22 +496,24 @@ def mplight_mm(signals, step):
     pressure as the original mplight reward, split by vehicle class using
     the 'queue' / 'bike_queue' lane fields.
  
-    ped_pressure: sum over all of this signal's pedestrian crossings of
-    signal.ped_crossing_pressure[crossing_id] (approaching-minus-leaving,
-    camera-style, see Signal._collect_ped_crossing_pressure; crossing_id
-    is a SUMO crossing index like 'c0', not a cardinal direction). Unlike
-    the vehicle terms there's no "downstream signal" to subtract for
-    pedestrians — crossing a leg of THIS intersection doesn't create
-    pressure at the next intersection the way a vehicle queue does, so we
-    don't apply the same upstream-minus-downstream logic here.
+    ped_pressure: sum over all of this signal's phase pairs of
+    signal.ped_crossing_pressure[pair_idx] — SUMO's own
+    traci.trafficlight.getServedPersonCount() per phase (see
+    Signal._collect_ped_crossing_pressure), already keyed by GLOBAL
+    phase_pairs index, not a crossing id. This replaced three earlier
+    designs (cardinal-direction bucketing, real-edge path tracing,
+    walking-area presence polling) that each had confirmed problems on
+    real network topology/pedestrian-model behavior; getServedPersonCount
+    is SUMO's own built-in answer to "how many people would be served by
+    this phase," so this code no longer does any crossing detection
+    itself. Unlike the vehicle terms there's no "downstream signal" to
+    subtract for pedestrians — crossing a leg of THIS intersection
+    doesn't create pressure at the next intersection the way a vehicle
+    queue does, so we don't apply the same upstream-minus-downstream
+    logic here.
     """
-
-    W_BIKE = mdp_configs.get('W_BIKE', 1.0)
-    W_PED = mdp_configs.get('W_PED', 1.0)
-
     rewards = dict()
     for signal_id in signals:
-        
         signal = signals[signal_id]
  
         car_pressure = 0.0
@@ -533,7 +535,6 @@ def mplight_mm(signals, step):
                 bike_pressure -= dwn_bike
  
         ped_pressure = sum(getattr(signal, 'ped_crossing_pressure', {}).values())
-        _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step)
  
         rewards[signal_id] = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
     return rewards

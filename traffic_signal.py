@@ -210,13 +210,14 @@ class Signal:
         # since it reuses self._flat_inbound_lanes).
         self._build_movement_index_map()
 
-        # MPLight MM ped detection. No distance cutoff needed — pressure
-        # is read directly off the walking-area lanes adjacent to each
-        # crossing (see _build_ped_crossing_groups / _collect_ped_crossing_pressure),
-        # which are themselves small, fixed, local detection points.
-        self._build_ped_crossing_groups()
-        self._build_phase_pair_ped_crossings()
-        self.ped_crossing_pressure = {}   # crossing_id -> float, set each observe()
+        # MPLight MM ped detection: pressure is read per-phase directly
+        # from SUMO's own traci.trafficlight.getServedPersonCount() in
+        # _collect_ped_crossing_pressure (called from observe()) — no
+        # construction-time detection/setup needed, unlike three earlier
+        # approaches that required building crossing/walking-area maps
+        # here (see _collect_ped_crossing_pressure's docstring for why
+        # those were replaced).
+        self.ped_crossing_pressure = {}   # GLOBAL pair_idx -> float, set each observe()
 
         self.signals = None     # Used to allow signal sharing
         self.full_observation = None
@@ -619,179 +620,84 @@ class Signal:
             f"indices were intended to mean."
         )
 
-    def _build_ped_crossing_groups(self):
-        """Identify pedestrian crossings controlled by this TLS, using
-        the walking area immediately adjacent to each crossing as the
-        detection point — i.e. "camera at the corner", matching SUMO's
-        own documented pattern for pedestrian-actuated crossings.
+    def _collect_ped_crossing_pressure(self):
+        """Per-phase-pair pedestrian pressure, using SUMO's own built-in
+        traci.trafficlight.getServedPersonCount(tlsID, phaseIndex) —
+        "returns the number of persons that would be served in the given
+        phase" — instead of hand-rolled walking-area/crossing detection.
 
-        REPLACES TWO EARLIER, MORE COMPLEX APPROACHES:
+        REPLACES THREE EARLIER ATTEMPTS, all of which had real, confirmed
+        problems:
           1. 'W'/'w' phase.state + cardinal-direction bucket — wrong,
-             J01's phases never use 'W'/'w' (see _build_movement_index_map
-             docstring history for the full trace).
-          2. Tracing forward/backward through chained internal lanes to
-             find a REAL (non-internal) edge on each side of a crossing —
-             this technically worked after enough fixes, but every
-             crossing at J01 turned out to be part of ONE connected ring
-             of walking areas/crossings around the joined junction. Once
-             the hop limit was raised enough to actually reach a real
-             edge from anywhere on the ring, every crossing's BFS
-             tunnelled all the way around and found the SAME real edges
-             as every other crossing — destroying the entire point of
-             per-crossing pressure (every crossing reported identical
-             pressure, so the phase-pair embedding had nothing to
-             discriminate on).
+             J01's phases never use 'W'/'w'.
+          2. Forward/backward tracing through chained internal lanes to
+             find real edges on each side of a crossing — broke down
+             because J01's crossings/walking-areas form one connected
+             ring, so every crossing ended up reporting identical
+             pressure once the tracing went deep enough to succeed at
+             all.
+          3. Reading getLastStepPersonIDs() directly on the walking-area
+             lane adjacent to each crossing (after fixing a lane-vs-edge
+             id bug, and after fixing a single-sample-per-RL-decision
+             timing gap with a per-substep polling accumulator) — STILL
+             read 0.0 in a live run. Investigated via person.getRoadID()
+             ground-truth tracing: a real pedestrian's reported position
+             jumped directly between two NAMED edges (e.g. '01.01#s0' ->
+             '01.01#N0') and never showed ANY internal walking-area or
+             crossing lane at any sampled instant, despite confirmed
+             dwell times of several seconds on those lanes by geometry
+             (length / max pedestrian speed). This means
+             getLastStepPersonIDs()/getRoadID() do not expose
+             fine-grained walking-area/crossing transit for this
+             pedestrian model the way the SUMO docs' general description
+             of the striping model seemed to suggest — confirmed
+             empirically, not assumed.
 
-        THE FIX: stop trying to reach a real edge at all. SUMO's own
-        pedestrian-crossing tutorial (TraCIPedCrossing) detects waiting
-        pedestrians by calling getLastStepPersonIDs() directly on the
-        WALKING AREA lanes adjacent to the crossing, then uses
-        person.getNextEdge() to tell approaching vs. leaving — exactly
-        the "camera pointed at where pedestrians wait" framing, and it
-        requires no path-tracing through the network at all. This is
-        also more physically faithful: a real camera at an intersection
-        corner doesn't see three hops away, it sees the corner it's
-        pointed at.
+        getServedPersonCount sidesteps ALL of this: it's SUMO's own C++
+        internal logic for exactly this question ("how many people are
+        waiting to use a crossing that would be served by this phase"),
+        using getNextEdge()-based intent filtering and walking
+        forwards/backwards across the crossing — the same thing we were
+        trying to reconstruct by hand from the Python API, but via
+        internals that evidently see what our calls didn't. It is keyed
+        directly by LOCAL SUMO PHASE INDEX, not by crossing/walking-area
+        lane id at all — which also means none of the lane detection,
+        edge conversion, ring-topology, or sub-step-polling machinery
+        from the earlier attempts is needed anymore.
 
-        DETECTION: a controlled-link position is a pedestrian crossing
-        iff its out_lane matches the '_c<N>_' naming pattern (confirmed
-        against J01's net.xml). Its signature (which phases it's green
-        in) is computed the same way as vehicle movements.
+        Returns dict[pair_idx -> float], where pair_idx is the GLOBAL
+        phase_pairs index (matching mplight_mm's state/reward functions),
+        not a SUMO phase index — converted via signal_configs[map]
+        ['valid_acts'][self.id], the same mapping phase_pairs/valid_acts
+        already provide. Stored on self.ped_crossing_pressure AND
+        self.phase_pair_ped_pressure (same dict, see note below on the
+        attribute rename).
 
-        self.ped_crossings: dict[crossing_id -> {
-            'w_in': the EDGE id of the walking area immediately BEFORE
-                the crossing (persons here are approaching) — converted
-                from the controlled-link's lane id via getEdgeID(),
-                since getLastStepPersonIDs() requires an edge id, not a
-                lane id (see CRITICAL note below),
-            'w_out': the EDGE id of the walking area immediately AFTER
-                the crossing (persons here are leaving), found via one
-                direct forward hop from the crossing lane — no further
-                tracing,
-            'signature': tuple, which phases this crossing is green in,
-        }}
-        crossing_id is the SUMO crossing index as a string ('c0', 'c1',
-        ...), not a cardinal direction — there's no reliable general way
-        to assign N/E/S/W to an arbitrary crossing on an irregular
-        junction (same reasoning as movement_index_map dropping the
-        direction taxonomy).
+        NOTE ON NAMING: earlier versions exposed
+        self.phase_pair_ped_crossings (pair_idx -> list of crossing ids)
+        as a separate intermediate structure, consumed by
+        state_mplight_mm.py's per-pair pedestrian block. That
+        intermediate structure no longer exists — there ARE no crossing
+        ids anymore, since getServedPersonCount works directly per phase.
+        self.ped_crossing_pressure is now ALREADY keyed by global pair_idx
+        (an int), not by crossing_id (a string like 'c0'). state_mplight_mm.py
+        has been updated to match (see that file's comments).
         """
-        import re
-        crossing_pattern = re.compile(r':.*_c(\d+)_\d+$')
-
-        self.ped_crossings = {}
-
-        links = self.sumo.trafficlight.getControlledLinks(self.id)
-        num_phases = self.num_green_phases
-
-        for idx, group in enumerate(links):
-            if len(group) == 0:
-                continue
-            for link in group:
-                if len(link) < 2:
-                    continue
-                in_lane, out_lane = link[0], link[1]
-                if in_lane is None or out_lane is None:
-                    continue
-
-                match = crossing_pattern.match(out_lane)
-                if not match:
-                    continue  # not a pedestrian crossing position
-
-                crossing_id = 'c' + match.group(1)
-                w_in_lane = in_lane  # walking area immediately before the crossing
-
-                signature = tuple(
-                    1 if (idx < len(self.phases[p].state) and self.phases[p].state[idx] in ('G', 'g')) else 0
-                    for p in range(num_phases)
-                )
-
-                # w_out: walking area immediately after the crossing, one
-                # direct forward hop from the crossing lane itself — no
-                # further tracing past this point, by design.
-                w_out_lane = None
-                try:
-                    forward = self.sumo.lane.getLinks(out_lane)
-                except Exception:
-                    forward = []
-                for entry in forward:
-                    target = entry[0] if len(entry) > 0 else None
-                    if target:
-                        w_out_lane = target
-                        break
-
-                # CRITICAL: getLastStepPersonIDs (used in
-                # _collect_ped_crossing_pressure) takes an EDGE id, not a
-                # LANE id. w_in_lane/w_out_lane above are lane ids (e.g.
-                # ':J01.1_w4_0', with a trailing lane-index suffix) — the
-                # SAME lane-vs-edge distinction that already required
-                # getEdgeID() elsewhere in this file (e.g.
-                # _collect_pedestrian_measures, _get_controlled_edges).
-                # Missed here originally: passing the lane id directly
-                # into getLastStepPersonIDs raised
-                # `TraCIException: Edge '...' is not known` on every
-                # call, silently swallowed by a bare except in
-                # _collect_ped_crossing_pressure's try/except, producing
-                # ped_crossing_pressure = 0.0 for every crossing on every
-                # step with no visible error — confirmed via a live
-                # training run where ped_pressure_raw was logged as
-                # exactly 0.0 across 72000 rows. Converting to edge id
-                # ONCE here (at construction) rather than every step
-                # avoids repeating the lookup on every observe() call.
-                w_in_edge = None
-                if w_in_lane:
-                    try:
-                        w_in_edge = self.sumo.lane.getEdgeID(w_in_lane)
-                    except Exception:
-                        w_in_edge = None
-                w_out_edge = None
-                if w_out_lane:
-                    try:
-                        w_out_edge = self.sumo.lane.getEdgeID(w_out_lane)
-                    except Exception:
-                        w_out_edge = None
-
-                self.ped_crossings[crossing_id] = {
-                    'w_in': w_in_edge,
-                    'w_out': w_out_edge,
-                    'signature': signature,
-                }
-
-        print(f"[{self.id}] derived {len(self.ped_crossings)} pedestrian crossings "
-              f"(walking-area detection points): {self.ped_crossings}")
-        if self.ped_crossings:
-            missing = [c for c, v in self.ped_crossings.items() if v['w_out'] is None]
-            if missing:
-                print(
-                    f"[{self.id}] >>> WARNING: crossings {missing} have no w_out "
-                    f"(no forward link found from the crossing lane) — leaving "
-                    f"pressure for these will always be 0. Verify against net.xml."
-                )
-
-    def _build_phase_pair_ped_crossings(self):
-        """Build phase_pair_idx -> [crossing_ids walkable in that phase].
-
-        REPLACES an earlier version that used phase_ped_lanes (which
-        relied on the 'W'/'w' phase.state convention this map doesn't
-        use — see _build_ped_crossing_groups). Now uses each crossing's
-        own signature (computed directly in _build_ped_crossing_groups
-        the same way vehicle movement signatures are computed), checked
-        against the SUMO phase index each phase_pairs entry maps to via
-        valid_acts.
-        """
-        self.phase_pair_ped_crossings = {}
+        pressure = {}
         myconfig = signal_configs.get(self.map_name, {})
         valid_acts = myconfig.get('valid_acts', {}).get(self.id, {})
 
         for pair_idx, local_phase_idx in valid_acts.items():
-            crossing_ids = []
-            for crossing_id, crossing in self.ped_crossings.items():
-                signature = crossing.get('signature', ())
-                if local_phase_idx < len(signature) and signature[local_phase_idx] == 1:
-                    crossing_ids.append(crossing_id)
-            self.phase_pair_ped_crossings[pair_idx] = crossing_ids
+            try:
+                count = self.sumo.trafficlight.getServedPersonCount(self.id, local_phase_idx)
+            except Exception as e:
+                print(f"[{self.id}] ERROR getServedPersonCount(phase={local_phase_idx}) "
+                      f"for pair_idx {pair_idx}: {e}")
+                count = 0
+            pressure[pair_idx] = float(count)
 
-        print(f"[{self.id}] phase_pair_ped_crossings: {self.phase_pair_ped_crossings}")
+        self.ped_crossing_pressure = pressure
+        return pressure
 
     def generate_config(self):
         print('GENERATING CONFIG')
@@ -984,83 +890,6 @@ class Signal:
             'ped_approaching_crossing': ped_approaching_crossing,
             'ped_leaving_intersection': ped_leaving_intersection,
         }
-
-    def _collect_ped_crossing_pressure(self):
-        """Per-crossing 'camera' pressure: approaching_count - leaving_count,
-        detected directly on the walking-area EDGES immediately adjacent
-        to the crossing (self.ped_crossings[...]['w_in'/'w_out'], already
-        converted from lane id to edge id in _build_ped_crossing_groups)
-        — no distance cutoff and no path tracing, matching SUMO's own
-        documented pattern for pedestrian-actuated crossings
-        (TraCIPedCrossing tutorial): call getLastStepPersonIDs() on the
-        walking area to find who's there.
-
-        REPLACES an earlier design that traced forward/backward through
-        the network to find REAL (non-internal) edges on each side of a
-        crossing, then applied a distance cutoff on those edges. That
-        approach broke down because J01's crossings/walking areas form
-        one connected ring — tracing far enough to reach a real edge from
-        any crossing meant tunnelling through every OTHER crossing too,
-        so every crossing ended up reporting identical pressure. Reading
-        directly off the adjacent walking area sidesteps this entirely:
-        it's a fixed, local detection point, exactly like a real camera
-        mounted at that specific corner would be.
-
-        Returns dict[crossing_id -> float] (crossing_id like 'c0', 'c1',
-        ...), stored on self.ped_crossing_pressure.
-
-        SIMPLIFICATION, flagged rather than silently assumed: this counts
-        PRESENCE on w_in/w_out, not confirmed intent. SUMO's own tutorial
-        additionally calls person.getNextEdge() per person to filter only
-        those actually walking toward/away from the crossing, since a
-        person could be on the walking area without intending to cross
-        here. Not applied here to keep this a straightforward "camera
-        sees N people standing here" signal, per your preference for
-        simplicity over intent-filtering — revisit if pressure values seem
-        inflated by pedestrians merely passing through.
-
-        EXCEPTION HANDLING IS DELIBERATELY LOUD HERE, not silent. A
-        previous version caught getLastStepPersonIDs() exceptions with a
-        bare `except Exception: person_ids = []`, which silently
-        swallowed `TraCIException: Edge '...' is not known` raised on
-        EVERY call — caused by passing a LANE id (e.g. ':J01.1_w4_0')
-        into an API that requires an EDGE id (':J01.1_w4'). This produced
-        ped_crossing_pressure = 0.0 for every crossing, every step, with
-        zero visible error, for an entire training run — confirmed via a
-        logged pressure CSV showing exactly 0.0 across 72000 rows. Fixed
-        at the source (w_in/w_out now store edge ids, converted once at
-        construction), but exceptions here now print instead of silently
-        defaulting to zero, so any SIMILAR future mistake fails loudly
-        instead of quietly corrupting an entire run's pedestrian signal.
-        """
-        pressure = {}
-        for crossing_id, crossing in self.ped_crossings.items():
-            approaching = 0
-            leaving = 0
-
-            w_in = crossing.get('w_in')
-            if w_in:
-                try:
-                    person_ids = self.sumo.edge.getLastStepPersonIDs(w_in)
-                except Exception as e:
-                    print(f"[{self.id}] ERROR getLastStepPersonIDs(w_in={w_in!r}) "
-                          f"for crossing {crossing_id}: {e}")
-                    person_ids = []
-                approaching += len(person_ids)
-
-            w_out = crossing.get('w_out')
-            if w_out:
-                try:
-                    person_ids = self.sumo.edge.getLastStepPersonIDs(w_out)
-                except Exception as e:
-                    print(f"[{self.id}] ERROR getLastStepPersonIDs(w_out={w_out!r}) "
-                          f"for crossing {crossing_id}: {e}")
-                    person_ids = []
-                leaving += len(person_ids)
-
-            pressure[crossing_id] = max(0.0, float(approaching - leaving))
-        self.ped_crossing_pressure = pressure
-        return pressure
 
     def observe(self, step_length, distance):
         full_observation = dict()
