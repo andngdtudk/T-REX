@@ -497,9 +497,10 @@ def mplight_mm(signals, step):
     the 'queue' / 'bike_queue' lane fields.
  
     ped_pressure: sum over all of this signal's pedestrian crossings of
-    signal.ped_crossing_pressure[direction] (approaching-minus-leaving,
-    camera-style, see Signal._collect_ped_crossing_pressure). Unlike the
-    vehicle terms there's no "downstream signal" to subtract for
+    signal.ped_crossing_pressure[crossing_id] (approaching-minus-leaving,
+    camera-style, see Signal._collect_ped_crossing_pressure; crossing_id
+    is a SUMO crossing index like 'c0', not a cardinal direction). Unlike
+    the vehicle terms there's no "downstream signal" to subtract for
     pedestrians — crossing a leg of THIS intersection doesn't create
     pressure at the next intersection the way a vehicle queue does, so we
     don't apply the same upstream-minus-downstream logic here.

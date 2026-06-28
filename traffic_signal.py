@@ -210,10 +210,10 @@ class Signal:
         # since it reuses self._flat_inbound_lanes).
         self._build_movement_index_map()
 
-        # MPLight MM ped detection
-        self.ped_detect_distance = float(
-            signal_configs.get(map_name, {}).get('ped_detect_distance', 15.0)
-        )
+        # MPLight MM ped detection. No distance cutoff needed — pressure
+        # is read directly off the walking-area lanes adjacent to each
+        # crossing (see _build_ped_crossing_groups / _collect_ped_crossing_pressure),
+        # which are themselves small, fixed, local detection points.
         self._build_ped_crossing_groups()
         self._build_phase_pair_ped_crossings()
         self.ped_crossing_pressure = {}   # crossing_id -> float, set each observe()
@@ -620,39 +620,66 @@ class Signal:
         )
 
     def _build_ped_crossing_groups(self):
-        """Group pedestrian-controlled edges into per-direction 'crossings'.
+        """Identify pedestrian crossings controlled by this TLS, using
+        the walking area immediately adjacent to each crossing as the
+        detection point — i.e. "camera at the corner", matching SUMO's
+        own documented pattern for pedestrian-actuated crossings.
 
-        A crossing roughly corresponds to one crosswalk leg of the intersection
-        (north leg, east leg, etc). We key crossings by the same direction
-        labels used elsewhere ('N', 'E', 'S', 'W') so they can be tied back to
-        phases via phase_ped_lanes.
+        REPLACES TWO EARLIER, MORE COMPLEX APPROACHES:
+          1. 'W'/'w' phase.state + cardinal-direction bucket — wrong,
+             J01's phases never use 'W'/'w' (see _build_movement_index_map
+             docstring history for the full trace).
+          2. Tracing forward/backward through chained internal lanes to
+             find a REAL (non-internal) edge on each side of a crossing —
+             this technically worked after enough fixes, but every
+             crossing at J01 turned out to be part of ONE connected ring
+             of walking areas/crossings around the joined junction. Once
+             the hop limit was raised enough to actually reach a real
+             edge from anywhere on the ring, every crossing's BFS
+             tunnelled all the way around and found the SAME real edges
+             as every other crossing — destroying the entire point of
+             per-crossing pressure (every crossing reported identical
+             pressure, so the phase-pair embedding had nothing to
+             discriminate on).
 
-        self.ped_crossings: dict[direction -> {'in_edges': set, 'out_edges': set}]
-            in_edges/out_edges are used as the two 'camera' positions: vehicles
-            (here, persons) on in_edges are 'approaching' the crossing, persons
-            on out_edges (already across) are 'leaving'.
+        THE FIX: stop trying to reach a real edge at all. SUMO's own
+        pedestrian-crossing tutorial (TraCIPedCrossing) detects waiting
+        pedestrians by calling getLastStepPersonIDs() directly on the
+        WALKING AREA lanes adjacent to the crossing, then uses
+        person.getNextEdge() to tell approaching vs. leaving — exactly
+        the "camera pointed at where pedestrians wait" framing, and it
+        requires no path-tracing through the network at all. This is
+        also more physically faithful: a real camera at an intersection
+        corner doesn't see three hops away, it sees the corner it's
+        pointed at.
+
+        DETECTION: a controlled-link position is a pedestrian crossing
+        iff its out_lane matches the '_c<N>_' naming pattern (confirmed
+        against J01's net.xml). Its signature (which phases it's green
+        in) is computed the same way as vehicle movements.
+
+        self.ped_crossings: dict[crossing_id -> {
+            'w_in': the walking area lane immediately BEFORE the crossing
+                (persons here are approaching),
+            'w_out': the walking area lane immediately AFTER the crossing
+                (persons here are leaving), found via one direct forward
+                hop from the crossing lane — no further tracing,
+            'signature': tuple, which phases this crossing is green in,
+        }}
+        crossing_id is the SUMO crossing index as a string ('c0', 'c1',
+        ...), not a cardinal direction — there's no reliable general way
+        to assign N/E/S/W to an arbitrary crossing on an irregular
+        junction (same reasoning as movement_index_map dropping the
+        direction taxonomy).
         """
-        self.ped_crossings = {d: {'in_edges': set(), 'out_edges': set()} for d in ('N', 'E', 'S', 'W')}
+        import re
+        crossing_pattern = re.compile(r':.*_c(\d+)_\d+$')
+
+        self.ped_crossings = {}
 
         links = self.sumo.trafficlight.getControlledLinks(self.id)
-        # phase.state position -> link group, same alignment used in
-        # _build_phase_lane_maps. We need the *direction* a given pedestrian
-        # link belongs to; reuse inbounds_fr_direction's lane membership where
-        # possible, else fall back to edge-geometry heuristics already used by
-        # generate_config (index_to_movement style) is overkill here — instead
-        # we tag a pedestrian link's direction using whichever cardinal lane_set
-        # direction shares its connector index, matching how phase_ped_lanes
-        # was already built positionally.
-        #
-        # Practically: for each link group position that has W/w in ANY phase,
-        # find the same position's lane via getControlledLinks, then look up
-        # which cardinal direction's vehicle lane sits at a 'nearby' index
-        # (same index bucket, see infer_phase_pair_from_state's bucket logic)
-        # OR — simpler and robust — use the edge's own from/to junction name
-        # convention if present, falling back to splitting evenly across W/E/N/S
-        # in link order. Below uses the robust positional-bucket approach.
+        num_phases = self.num_green_phases
 
-        state_len = max(1, len(links))
         for idx, group in enumerate(links):
             if len(group) == 0:
                 continue
@@ -662,60 +689,74 @@ class Signal:
                 in_lane, out_lane = link[0], link[1]
                 if in_lane is None or out_lane is None:
                     continue
-                # Only pedestrian-relevant lanes: SUMO marks ped lanes via the
-                # lane's allowed class, but we don't always have lane.getAllowed
-                # cheaply here, so rely on phase_ped_lanes already computed in
-                # _build_phase_lane_maps to know which *positions* are 'W'/'w'.
-                is_ped_position = False
-                for phase_idx in range(self.num_green_phases):
-                    state = self.phases[phase_idx].state
-                    if idx < len(state) and state[idx] in ('W', 'w'):
-                        is_ped_position = True
-                        break
-                if not is_ped_position:
-                    continue
 
-                bucket = min(3, int((idx * 4) / state_len))
-                direction = ('N', 'E', 'S', 'W')[bucket]
+                match = crossing_pattern.match(out_lane)
+                if not match:
+                    continue  # not a pedestrian crossing position
+
+                crossing_id = 'c' + match.group(1)
+                w_in = in_lane  # walking area immediately before the crossing
+
+                signature = tuple(
+                    1 if (idx < len(self.phases[p].state) and self.phases[p].state[idx] in ('G', 'g')) else 0
+                    for p in range(num_phases)
+                )
+
+                # w_out: walking area immediately after the crossing, one
+                # direct forward hop from the crossing lane itself — no
+                # further tracing past this point, by design.
+                w_out = None
                 try:
-                    in_edge = self.sumo.lane.getEdgeID(in_lane)
-                    out_edge = self.sumo.lane.getEdgeID(out_lane)
+                    forward = self.sumo.lane.getLinks(out_lane)
                 except Exception:
-                    continue
-                self.ped_crossings[direction]['in_edges'].add(in_edge)
-                self.ped_crossings[direction]['out_edges'].add(out_edge)
+                    forward = []
+                for entry in forward:
+                    target = entry[0] if len(entry) > 0 else None
+                    if target:
+                        w_out = target
+                        break
 
-        # Drop empty directions so downstream code only iterates real crossings.
-        self.ped_crossings = {
-            d: v for d, v in self.ped_crossings.items()
-            if v['in_edges'] or v['out_edges']
-        }
+                self.ped_crossings[crossing_id] = {
+                    'w_in': w_in,
+                    'w_out': w_out,
+                    'signature': signature,
+                }
+
+        print(f"[{self.id}] derived {len(self.ped_crossings)} pedestrian crossings "
+              f"(walking-area detection points): {self.ped_crossings}")
+        if self.ped_crossings:
+            missing = [c for c, v in self.ped_crossings.items() if v['w_out'] is None]
+            if missing:
+                print(
+                    f"[{self.id}] >>> WARNING: crossings {missing} have no w_out "
+                    f"(no forward link found from the crossing lane) — leaving "
+                    f"pressure for these will always be 0. Verify against net.xml."
+                )
 
     def _build_phase_pair_ped_crossings(self):
-        """Build phase_pair_idx -> [crossing directions walkable in that phase]."""
+        """Build phase_pair_idx -> [crossing_ids walkable in that phase].
+
+        REPLACES an earlier version that used phase_ped_lanes (which
+        relied on the 'W'/'w' phase.state convention this map doesn't
+        use — see _build_ped_crossing_groups). Now uses each crossing's
+        own signature (computed directly in _build_ped_crossing_groups
+        the same way vehicle movement signatures are computed), checked
+        against the SUMO phase index each phase_pairs entry maps to via
+        valid_acts.
+        """
         self.phase_pair_ped_crossings = {}
         myconfig = signal_configs.get(self.map_name, {})
         valid_acts = myconfig.get('valid_acts', {}).get(self.id, {})
 
         for pair_idx, local_phase_idx in valid_acts.items():
-            ped_lanes = set(self.phase_ped_lanes.get(local_phase_idx, []))
-            directions = []
-            if ped_lanes:
-                for direction, crossing in self.ped_crossings.items():
-                    # A crossing is "served" by this phase if any of its in/out
-                    # edges' lanes appear in this phase's walk lanes.
-                    served = False
-                    for lane in ped_lanes:
-                        try:
-                            edge = self.sumo.lane.getEdgeID(lane)
-                        except Exception:
-                            continue
-                        if edge in crossing['in_edges'] or edge in crossing['out_edges']:
-                            served = True
-                            break
-                    if served:
-                        directions.append(direction)
-            self.phase_pair_ped_crossings[pair_idx] = directions
+            crossing_ids = []
+            for crossing_id, crossing in self.ped_crossings.items():
+                signature = crossing.get('signature', ())
+                if local_phase_idx < len(signature) and signature[local_phase_idx] == 1:
+                    crossing_ids.append(crossing_id)
+            self.phase_pair_ped_crossings[pair_idx] = crossing_ids
+
+        print(f"[{self.id}] phase_pair_ped_crossings: {self.phase_pair_ped_crossings}")
 
     def generate_config(self):
         print('GENERATING CONFIG')
@@ -911,49 +952,60 @@ class Signal:
 
     def _collect_ped_crossing_pressure(self):
         """Per-crossing 'camera' pressure: approaching_count - leaving_count,
-        restricted to persons within self.ped_detect_distance of the crossing
-        edges (so it behaves like a fixed-position detector, analogous to
-        get_vehicles' max_distance for cars).
+        detected directly on the walking-area lanes immediately adjacent
+        to the crossing (w_in / w_out) — no distance cutoff and no path
+        tracing, matching SUMO's own documented pattern for pedestrian-
+        actuated crossings (TraCIPedCrossing tutorial): call
+        getLastStepPersonIDs() on the walking area to find who's there.
 
-        Returns dict[direction -> float], stored on self.ped_crossing_pressure.
+        REPLACES an earlier design that traced forward/backward through
+        the network to find REAL (non-internal) edges on each side of a
+        crossing, then applied a distance cutoff on those edges. That
+        approach broke down because J01's crossings/walking areas form
+        one connected ring — tracing far enough to reach a real edge from
+        any crossing meant tunnelling through every OTHER crossing too,
+        so every crossing ended up reporting identical pressure. Reading
+        directly off the adjacent walking area sidesteps this entirely:
+        it's a fixed, local detection point, exactly like a real camera
+        mounted at that specific corner would be.
+
+        Returns dict[crossing_id -> float] (crossing_id like 'c0', 'c1',
+        ...), stored on self.ped_crossing_pressure.
+
+        SIMPLIFICATION, flagged rather than silently assumed: this counts
+        PRESENCE on w_in/w_out, not confirmed intent. SUMO's own tutorial
+        additionally calls person.getNextEdge() per person to filter only
+        those actually walking toward/away from the crossing, since a
+        person could be on the walking area without intending to cross
+        here. Not applied here to keep this a straightforward "camera
+        sees N people standing here" signal, per your preference for
+        simplicity over intent-filtering — revisit if pressure values seem
+        inflated by pedestrians merely passing through.
         """
         pressure = {}
-        for direction, crossing in self.ped_crossings.items():
+        for crossing_id, crossing in self.ped_crossings.items():
             approaching = 0
             leaving = 0
-            for edge_id in crossing['in_edges']:
+
+            w_in = crossing.get('w_in')
+            if w_in:
                 try:
-                    person_ids = self.sumo.edge.getLastStepPersonIDs(edge_id)
+                    person_ids = self.sumo.edge.getLastStepPersonIDs(w_in)
                 except Exception:
-                    continue
-                for person_id in person_ids:
-                    if self._person_within_distance(person_id, edge_id):
-                        approaching += 1
-            for edge_id in crossing['out_edges']:
+                    person_ids = []
+                approaching += len(person_ids)
+
+            w_out = crossing.get('w_out')
+            if w_out:
                 try:
-                    person_ids = self.sumo.edge.getLastStepPersonIDs(edge_id)
+                    person_ids = self.sumo.edge.getLastStepPersonIDs(w_out)
                 except Exception:
-                    continue
-                for person_id in person_ids:
-                    if self._person_within_distance(person_id, edge_id):
-                        leaving += 1
-            pressure[direction] = max(0.0, float(approaching - leaving))
+                    person_ids = []
+                leaving += len(person_ids)
+
+            pressure[crossing_id] = max(0.0, float(approaching - leaving))
         self.ped_crossing_pressure = pressure
         return pressure
-
-    def _person_within_distance(self, person_id, edge_id):
-        """Camera-style cutoff: only count a person if they're within
-        self.ped_detect_distance of the edge (using lane position along the
-        edge as a simple proxy, since persons don't have getNextTLS like
-        vehicles do)."""
-        try:
-            lane_pos = self.sumo.person.getLanePosition(person_id)
-            edge_len = self.sumo.lane.getLength(edge_id + '_0')
-        except Exception:
-            return True  # fail open: if we can't measure, don't silently drop them
-        # Distance to the *end* of the edge (i.e. distance to the crossing).
-        distance_to_crossing = max(0.0, edge_len - lane_pos)
-        return distance_to_crossing <= self.ped_detect_distance
 
     def observe(self, step_length, distance):
         full_observation = dict()

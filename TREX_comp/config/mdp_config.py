@@ -451,4 +451,10 @@ mdp_configs = {
             'clip_wait': 3.0,
         }
     },
+    "MPLight_MM": {
+        'kbh_j1_442m': {
+            "W_BIKE": 1,
+            "W_PED": 1,
+        }
+    },
 }

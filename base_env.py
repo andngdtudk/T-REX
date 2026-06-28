@@ -246,66 +246,6 @@ class BaseEnv(gym.Env):
                 rww.append(rewards[ts])
             return obss, rww, [done], {'eps': self.run}
 
-        # DEBUG
-        # Diagnostic checks for "ped_pressure always 0" — run interactively or drop
-        # these prints into your env loop for a handful of steps, NOT a standalone
-        # script (it needs a live `signal` / `signals` from your running sim).
-
-        #CHECK 0
-        for signal_id, signal in self.signals.items():
-            print(signal.sumo.trafficlight.getControlledLinks('J01'))
-
-        # --- Check 1: is ped_crossings populated at all? ---
-        for signal_id, signal in self.signals.items():
-            n_crossings = len(getattr(signal, 'ped_crossings', {}))
-            print(f"[check1] {signal_id}: ped_crossings = {n_crossings}")
-            if n_crossings:
-                # peek at one crossing's edge lists
-                sample_dir, sample_crossing = next(iter(signal.ped_crossings.items()))
-                print(f"          sample direction={sample_dir} "
-                    f"in_edges={sample_crossing.get('in_edges')} "
-                    f"out_edges={sample_crossing.get('out_edges')}")
-
-        # --- Check 2: is _collect_ped_crossing_pressure ever being called? ---
-        # Add a print/counter inside the method itself temporarily:
-        #
-        #   def _collect_ped_crossing_pressure(self):
-        #       print(f"[check2] called for {self.id} at step {self.sumo.simulation.getTime()}")
-        #       ...
-        #
-        # If this never prints during a training run, nothing calls it for this
-        # signal/agent path — that's your bug, independent of SUMO pedestrian data.
-
-        # --- Check 3: are there ANY persons in the simulation at all? ---
-        try:
-            all_person_ids = signal.sumo.person.getIDList()
-            print(f"[check3] total persons in sim right now: {len(all_person_ids)}")
-            if all_person_ids:
-                pid = all_person_ids[0]
-                print(f"          sample person {pid} on edge "
-                    f"{signal.sumo.person.getRoadID(pid)}")
-        except Exception as e:
-            print(f"[check3] error querying persons: {e}")
-
-        # --- Check 4: ped_detect_distance sane? ---
-        print(f"[check4] ped_detect_distance = {getattr(signal, 'ped_detect_distance', None)}")
-
-        # --- Check 5: manually replicate _collect_ped_crossing_pressure's inner loop
-        #     for one crossing, with prints at each stage, to see where the count
-        #     drops to zero ---
-        for direction, crossing in list(signal.ped_crossings.items())[:1]:
-            print(f"[check5] direction={direction}")
-            for edge_id in crossing['in_edges']:
-                try:
-                    pids = signal.sumo.edge.getLastStepPersonIDs(edge_id)
-                except Exception as e:
-                    print(f"   in_edge {edge_id}: ERROR {e}")
-                    continue
-                print(f"   in_edge {edge_id}: getLastStepPersonIDs -> {pids}")
-                for pid in pids:
-                    within = signal._person_within_distance(pid, edge_id)
-                    print(f"      person {pid}: within_distance={within}")
-
         return observations, rewards, done, {'eps': self.run}
 
     def calc_metrics(self, rewards):

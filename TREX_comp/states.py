@@ -404,9 +404,13 @@ def mplight_mm(signals):
     lane_sets_outbound (which uses the unrelated direction-string
     vocabulary and doesn't correspond to this movement indexing).
  
-    ped_pressure for phase_pair i = sum of signal.ped_crossing_pressure[d]
-    for every crossing direction d served during that phase pair (per
-    Signal._build_phase_pair_ped_crossings).
+    ped_pressure for phase_pair i = sum of signal.ped_crossing_pressure[c]
+    for every crossing_id c served during that phase pair (per
+    Signal._build_phase_pair_ped_crossings). crossing_id is a SUMO
+    crossing index like 'c0', 'c1', ... (not a cardinal direction — see
+    Signal._build_ped_crossing_groups for why: pedestrian crossings at
+    J01 are detected via their '_c<N>_' lane-naming pattern, derived
+    directly from SUMO's net.xml topology, not guessed from position).
  
     Requires Signal to expose (see signals.py):
         - signal.movement_index_map: dict[int -> signature tuple]
