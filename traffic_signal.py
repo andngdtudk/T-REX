@@ -659,11 +659,15 @@ class Signal:
         in) is computed the same way as vehicle movements.
 
         self.ped_crossings: dict[crossing_id -> {
-            'w_in': the walking area lane immediately BEFORE the crossing
-                (persons here are approaching),
-            'w_out': the walking area lane immediately AFTER the crossing
-                (persons here are leaving), found via one direct forward
-                hop from the crossing lane — no further tracing,
+            'w_in': the EDGE id of the walking area immediately BEFORE
+                the crossing (persons here are approaching) — converted
+                from the controlled-link's lane id via getEdgeID(),
+                since getLastStepPersonIDs() requires an edge id, not a
+                lane id (see CRITICAL note below),
+            'w_out': the EDGE id of the walking area immediately AFTER
+                the crossing (persons here are leaving), found via one
+                direct forward hop from the crossing lane — no further
+                tracing,
             'signature': tuple, which phases this crossing is green in,
         }}
         crossing_id is the SUMO crossing index as a string ('c0', 'c1',
@@ -695,7 +699,7 @@ class Signal:
                     continue  # not a pedestrian crossing position
 
                 crossing_id = 'c' + match.group(1)
-                w_in = in_lane  # walking area immediately before the crossing
+                w_in_lane = in_lane  # walking area immediately before the crossing
 
                 signature = tuple(
                     1 if (idx < len(self.phases[p].state) and self.phases[p].state[idx] in ('G', 'g')) else 0
@@ -705,7 +709,7 @@ class Signal:
                 # w_out: walking area immediately after the crossing, one
                 # direct forward hop from the crossing lane itself — no
                 # further tracing past this point, by design.
-                w_out = None
+                w_out_lane = None
                 try:
                     forward = self.sumo.lane.getLinks(out_lane)
                 except Exception:
@@ -713,12 +717,43 @@ class Signal:
                 for entry in forward:
                     target = entry[0] if len(entry) > 0 else None
                     if target:
-                        w_out = target
+                        w_out_lane = target
                         break
 
+                # CRITICAL: getLastStepPersonIDs (used in
+                # _collect_ped_crossing_pressure) takes an EDGE id, not a
+                # LANE id. w_in_lane/w_out_lane above are lane ids (e.g.
+                # ':J01.1_w4_0', with a trailing lane-index suffix) — the
+                # SAME lane-vs-edge distinction that already required
+                # getEdgeID() elsewhere in this file (e.g.
+                # _collect_pedestrian_measures, _get_controlled_edges).
+                # Missed here originally: passing the lane id directly
+                # into getLastStepPersonIDs raised
+                # `TraCIException: Edge '...' is not known` on every
+                # call, silently swallowed by a bare except in
+                # _collect_ped_crossing_pressure's try/except, producing
+                # ped_crossing_pressure = 0.0 for every crossing on every
+                # step with no visible error — confirmed via a live
+                # training run where ped_pressure_raw was logged as
+                # exactly 0.0 across 72000 rows. Converting to edge id
+                # ONCE here (at construction) rather than every step
+                # avoids repeating the lookup on every observe() call.
+                w_in_edge = None
+                if w_in_lane:
+                    try:
+                        w_in_edge = self.sumo.lane.getEdgeID(w_in_lane)
+                    except Exception:
+                        w_in_edge = None
+                w_out_edge = None
+                if w_out_lane:
+                    try:
+                        w_out_edge = self.sumo.lane.getEdgeID(w_out_lane)
+                    except Exception:
+                        w_out_edge = None
+
                 self.ped_crossings[crossing_id] = {
-                    'w_in': w_in,
-                    'w_out': w_out,
+                    'w_in': w_in_edge,
+                    'w_out': w_out_edge,
                     'signature': signature,
                 }
 
@@ -952,11 +987,13 @@ class Signal:
 
     def _collect_ped_crossing_pressure(self):
         """Per-crossing 'camera' pressure: approaching_count - leaving_count,
-        detected directly on the walking-area lanes immediately adjacent
-        to the crossing (w_in / w_out) — no distance cutoff and no path
-        tracing, matching SUMO's own documented pattern for pedestrian-
-        actuated crossings (TraCIPedCrossing tutorial): call
-        getLastStepPersonIDs() on the walking area to find who's there.
+        detected directly on the walking-area EDGES immediately adjacent
+        to the crossing (self.ped_crossings[...]['w_in'/'w_out'], already
+        converted from lane id to edge id in _build_ped_crossing_groups)
+        — no distance cutoff and no path tracing, matching SUMO's own
+        documented pattern for pedestrian-actuated crossings
+        (TraCIPedCrossing tutorial): call getLastStepPersonIDs() on the
+        walking area to find who's there.
 
         REPLACES an earlier design that traced forward/backward through
         the network to find REAL (non-internal) edges on each side of a
@@ -981,6 +1018,20 @@ class Signal:
         sees N people standing here" signal, per your preference for
         simplicity over intent-filtering — revisit if pressure values seem
         inflated by pedestrians merely passing through.
+
+        EXCEPTION HANDLING IS DELIBERATELY LOUD HERE, not silent. A
+        previous version caught getLastStepPersonIDs() exceptions with a
+        bare `except Exception: person_ids = []`, which silently
+        swallowed `TraCIException: Edge '...' is not known` raised on
+        EVERY call — caused by passing a LANE id (e.g. ':J01.1_w4_0')
+        into an API that requires an EDGE id (':J01.1_w4'). This produced
+        ped_crossing_pressure = 0.0 for every crossing, every step, with
+        zero visible error, for an entire training run — confirmed via a
+        logged pressure CSV showing exactly 0.0 across 72000 rows. Fixed
+        at the source (w_in/w_out now store edge ids, converted once at
+        construction), but exceptions here now print instead of silently
+        defaulting to zero, so any SIMILAR future mistake fails loudly
+        instead of quietly corrupting an entire run's pedestrian signal.
         """
         pressure = {}
         for crossing_id, crossing in self.ped_crossings.items():
@@ -991,7 +1042,9 @@ class Signal:
             if w_in:
                 try:
                     person_ids = self.sumo.edge.getLastStepPersonIDs(w_in)
-                except Exception:
+                except Exception as e:
+                    print(f"[{self.id}] ERROR getLastStepPersonIDs(w_in={w_in!r}) "
+                          f"for crossing {crossing_id}: {e}")
                     person_ids = []
                 approaching += len(person_ids)
 
@@ -999,7 +1052,9 @@ class Signal:
             if w_out:
                 try:
                     person_ids = self.sumo.edge.getLastStepPersonIDs(w_out)
-                except Exception:
+                except Exception as e:
+                    print(f"[{self.id}] ERROR getLastStepPersonIDs(w_out={w_out!r}) "
+                          f"for crossing {crossing_id}: {e}")
                     person_ids = []
                 leaving += len(person_ids)
 
