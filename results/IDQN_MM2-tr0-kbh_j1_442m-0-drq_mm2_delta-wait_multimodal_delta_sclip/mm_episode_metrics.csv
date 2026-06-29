@@ -1,1 +1,0 @@
-episode,car_wait_total,bike_wait_total,ped_wait_total,car_queue_total,bike_queue_total,reward_mean,reward_std,reward_min,reward_max,bike_wait_frac,ped_wait_frac,epsilon,mean_q,mean_loss,decisions,wall_seconds
