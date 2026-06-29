@@ -224,11 +224,11 @@ class BaseEnv(gym.Env):
         for signal in self.signals:
             self.signals[signal].prep_phase(act[signal])
 
-        for step in range(self.yellow_length):
+        for _ in range(self.yellow_length):
             self.step_sim()
         for signal in self.signal_ids:
             self.signals[signal].set_phase()
-        for step in range(self.step_length - self.yellow_length):
+        for _ in range(self.step_length - self.yellow_length):
             self.step_sim()
         for signal in self.signal_ids:
             self.signals[signal].observe(self.step_length, self.max_distance)
@@ -239,9 +239,13 @@ class BaseEnv(gym.Env):
                 count = self.signals[signal_id].sumo.trafficlight.getServedPersonCount(signal_id, i)
                 print(f"[DEBUG] {signal_id} phase {i}: getServedPersonCount={count}")
 
-        # observe new state and reward
+        # real step counter — use simulation time, which is already
+        # authoritative and available regardless of how step_length/yellow_length
+        # are configured
+        sim_time = self.sumo.simulation.getTime()
+
         observations = self.state_fn(self.signals)
-        rewards = self.reward_fn(self.signals, step)
+        rewards = self.reward_fn(self.signals, sim_time)
 
         self.calc_metrics(rewards)
 

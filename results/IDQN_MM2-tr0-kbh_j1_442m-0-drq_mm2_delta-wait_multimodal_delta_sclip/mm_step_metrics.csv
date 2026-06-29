@@ -1,0 +1,1 @@
+episode,decision,car_wait,bike_wait,ped_wait,car_queue,bike_queue,reward_mean,reward_min,reward_max,epsilon,mean_q
