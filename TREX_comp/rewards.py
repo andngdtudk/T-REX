@@ -477,15 +477,15 @@ def pressure(signals):
 _PRESSURE_LOG_PATH = "pressure_log.csv"
 _pressure_log_initialized = False
 
-def _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure_raw, step):
+def _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step):
     global _pressure_log_initialized
     mode = 'a' if _pressure_log_initialized else 'w'
     with open(_PRESSURE_LOG_PATH, mode, newline='') as f:
         writer = csv.writer(f)
         if not _pressure_log_initialized:
-            writer.writerow(['step', 'signal_id', 'car_pressure', 'bike_pressure', 'ped_pressure_raw'])
+            writer.writerow(['step', 'signal_id', 'car_pressure', 'bike_pressure', 'ped_pressure'])
             _pressure_log_initialized = True
-        writer.writerow([step, signal_id, car_pressure, bike_pressure, ped_pressure_raw])
+        writer.writerow([step, signal_id, car_pressure, bike_pressure, ped_pressure])
 
 W_BIKE = mdp_configs.get('W_BIKE', 1.0)
 W_PED = mdp_configs.get('W_PED', 1.0)
@@ -538,6 +538,7 @@ def mplight_mm(signals, step):
                 bike_pressure -= dwn_bike
  
         ped_pressure = sum(getattr(signal, 'ped_crossing_pressure', {}).values())
+        print(f"[DEBUG] step={step} signal_id={signal_id} car_pressure={car_pressure} bike_pressure={bike_pressure} ped_pressure={ped_pressure}")
 
         _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step)
  
