@@ -287,7 +287,7 @@ def _resolve_multimodal_delta_config():
     return defaults
 
 
-def wait_multimodal_delta_sclip(signals):
+def wait_multimodal_delta_sclip(signals, sim_time):
     """Scaled + clipped delta of weighted multimodal wait reward (IDQN_MM2).
 
     Computes the *change* in combined waiting time per signal between the
@@ -486,6 +486,10 @@ def _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step):
             writer.writerow(['step', 'signal_id', 'car_pressure', 'bike_pressure', 'ped_pressure'])
             _pressure_log_initialized = True
         writer.writerow([step, signal_id, car_pressure, bike_pressure, ped_pressure])
+
+#endregion
+#============================================================================================
+#region Pressure MM
 
 def mplight_mm(signals, sim_time):
     """Traffic-pressure reward extended with bike and pedestrian pressure.
