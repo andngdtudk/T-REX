@@ -234,10 +234,10 @@ class BaseEnv(gym.Env):
             self.signals[signal].observe(self.step_length, self.max_distance)
 
         # debug
-        for signal_id in self.signal_ids:
-            for i in range(len(self.signals[signal_id].phases)):
-                count = self.signals[signal_id].sumo.trafficlight.getServedPersonCount(signal_id, i)
-                print(f"[DEBUG] {signal_id} phase {i}: getServedPersonCount={count}")
+        # for signal_id in self.signal_ids:
+        #     for i in range(len(self.signals[signal_id].phases)):
+        #         count = self.signals[signal_id].sumo.trafficlight.getServedPersonCount(signal_id, i)
+        #         print(f"[DEBUG] {signal_id} phase {i}: getServedPersonCount={count}")
 
         # real step counter — use simulation time, which is already
         # authoritative and available regardless of how step_length/yellow_length

@@ -38,6 +38,8 @@ LOAD CON GUI:
 Remove-Item Env:LIBSUMO_AS_TRACI
 Get-ChildItem Env:LIBSUMO_AS_TRACI
 python main.py --agent IDQN_MM2 --map kbh_j1_442m --load True --eps 1 --gui True --no-libsumo --strategy 1 --load_dir "results15_bikesout\IDQN_MM2-tr0-kbh_j1_442m-0-drq_mm2_delta-wait_multimodal_delta_sclip\"
+python main.py --agent MPLight_MM --map kbh_j1_442m --load True --eps 1 --gui True --no-libsumo --strategy 1 --load_dir "results\MPLight_MM-tr0-kbh_j1_442m-0-mplight_mm-mplight_mm"
+
 
 python plot2.py
 python analyze_mm_metrics.py --log_dir results/IDQN_MM2-tr0-kbh_j1_442m-0-drq_mm2_delta-wait_multimodal_delta_sclip
