@@ -128,30 +128,29 @@ def infer_phase_pair_from_movements(local_phase_idx, signal):
             f"local_phase_idx={local_phase_idx} out of range for "
             f"signal '{signal.id}' with {num_phases} phases"
         )
-
+ 
     all_green_sig = tuple([1] * num_phases)
-
+ 
     served = []
-    for movement_idx, movement_key in signal.movement_index_map.items():
-        signature, junction = movement_key  # unpack (signature, junction_prefix)
-        if signature[local_phase_idx] == 1:
+    for movement_idx, sig in signal.movement_index_map.items():
+        if sig[local_phase_idx] == 1:
             n_lanes = len(signal.movement_lanes.get(movement_idx, []))
-            served.append((movement_idx, signature, n_lanes))
-
+            served.append((movement_idx, sig, n_lanes))
+ 
     if len(served) == 0:
         raise ValueError(
             f"signal '{signal.id}' phase {local_phase_idx}: no movement is "
             f"green in this phase at all -- check movement_index_map."
         )
-
+ 
     non_always_green = [(m, n) for (m, sig, n) in served if sig != all_green_sig]
     ranked = sorted(non_always_green, key=lambda x: (-x[1], x[0]))
-
+ 
     if len(ranked) >= 2:
         return [ranked[0][0], ranked[1][0]]
     if len(ranked) == 1:
         return [ranked[0][0], ranked[0][0]]
-
+ 
     print(
         f"[WARNING] signal '{signal.id}' phase {local_phase_idx}: only "
         f"always-green movement(s) {[m for m, _, _ in served]} are green "
