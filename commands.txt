@@ -32,7 +32,7 @@ python3 main.py --agent MPLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy
 en win
 $env:LIBSUMO_AS_TRACI = "1"
 New-Item -ItemType Directory -Path logs -Force
-python main.py --agent IDQN --map kbh_red_420 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs/idqn.log
+python main.py --agent IDQN_MM2 --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs/idqn_mm2.log
 python main.py --agent MPLight_MM --map kbh_j1_442m --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs/mplight_mm.log 
 
 
