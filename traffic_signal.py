@@ -26,20 +26,29 @@ def create_yellows(phases, yellow_length):
     return new_phases, yellow_dict
 
 
-def ensure_map_signal_control_config(map_name, phases_by_signal):
+def ensure_map_signal_control_config(map_name, signals_by_id):
+    """CHANGED SIGNATURE: now takes signals_by_id (dict[signal_id -> Signal],
+    already constructed, with movement_index_map/movement_lanes populated)
+    instead of phases_by_signal (dict[signal_id -> list[phase]]).
+ 
+    Call this AFTER all Signal objects for this map have been constructed,
+    but BEFORE any signal.observe() is called (observe() needs valid_acts
+    to exist, via _collect_ped_crossing_pressure's lookup).
+    """
     cfg = signal_configs.setdefault(map_name, {})
     if 'phase_pairs' in cfg and 'valid_acts' in cfg:
         return
-
-    phase_pairs, valid_acts = infer_phase_pairs_and_valid_acts(phases_by_signal)
+ 
+    phase_pairs, valid_acts, num_movements = infer_phase_pairs_and_valid_acts(signals_by_id)
     cfg['phase_pairs'] = phase_pairs
     cfg['valid_acts'] = valid_acts
-
-    # Emit copy-pasteable config snippet in the same style used in signal_config.py.
+    cfg['num_movements'] = num_movements
+ 
     print('GENERATED MAP CONTROL CONFIG')
     print("'" + map_name + "': {")
     print("'phase_pairs':" + str(phase_pairs) + ',')
     print("'valid_acts':" + str(valid_acts) + ',')
+    print("'num_movements':" + str(num_movements) + ',')
     print('},')
 
 
@@ -66,47 +75,91 @@ def export_map_signal_config(map_name):
     return str(out_file)
 
 
-def infer_phase_pairs_and_valid_acts(phases_by_signal):
+def infer_phase_pairs_and_valid_acts(signals_by_id):
+    """CHANGED SIGNATURE: now takes signals_by_id (dict[signal_id ->
+    Signal], already constructed) instead of phases_by_signal.
+ 
+    Returns:
+        phase_pairs: list[[movement_a, movement_b], ...]
+        valid_acts: dict[signal_id -> dict[pair_index -> local_phase_idx]]
+        num_movements: dict[signal_id -> int] -- NEW: since movement count
+            can legitimately differ per signal (e.g. J01 has 11; another
+            signal on the same map could have a different count), this is
+            returned per-signal rather than as one global int. If your
+            MPLight_MM/FRAP_MM construction currently expects a single
+            global num_movements for the whole map (SharedAgent batching
+            requirement), take max(num_movements.values()) and zero-pad
+            shorter signals' state vectors up to that width -- same
+            padding approach state_mplight_mm.py already uses for the
+            pedestrian block, for the same SharedAgent reason.
+    """
     phase_pairs = []
     valid_acts = {}
-
-    for signal_id, phases in phases_by_signal.items():
+    num_movements = {}
+ 
+    for signal_id, signal in signals_by_id.items():
         signal_valid = {}
-        for local_phase_idx, phase in enumerate(phases):
-            pair = infer_phase_pair_from_state(phase.state)
-            # Keep one phase-pair entry per local phase to avoid collisions
-            # when two phases map to the same inferred movement pair.
+        for local_phase_idx in range(signal.num_green_phases):
+            pair = infer_phase_pair_from_movements(local_phase_idx, signal)
             phase_pairs.append(pair)
             pair_index = len(phase_pairs) - 1
             signal_valid[pair_index] = local_phase_idx
         valid_acts[signal_id] = signal_valid
+        num_movements[signal_id] = len(signal.movement_index_map)
+ 
+    return phase_pairs, valid_acts, num_movements
 
-    return phase_pairs, valid_acts
+def infer_phase_pair_from_movements(local_phase_idx, signal):
+    """Infer [movement_a, movement_b] for one local phase, using the REAL
+    movement_index_map / movement_lanes already built on `signal` by
+    Signal._build_movement_index_map() -- not a positional bucket.
+ 
+    Always-green movements (signature == all 1s, i.e. green in every one
+    of this signal's phases) are excluded from being selected as a paired
+    movement: they carry no information about what's specifically being
+    served by any ONE phase, and pairing a phase's real movement against
+    one reproduces the exact dilution/starvation bug this was written to
+    fix (confirmed on J01 phase 1, originally paired against an
+    always-green satellite-junction lane via the old bucket scheme).
+    """
+    num_phases = signal.num_green_phases
+    if not (0 <= local_phase_idx < num_phases):
+        raise ValueError(
+            f"local_phase_idx={local_phase_idx} out of range for "
+            f"signal '{signal.id}' with {num_phases} phases"
+        )
 
+    all_green_sig = tuple([1] * num_phases)
 
-def infer_phase_pair_from_state(state):
-    active_movements = []
-    # Link-state strings are ordered by controlled-link index, but the number of
-    # links per junction can vary widely. Bucket the full state into 12 bins so
-    # every green bit contributes to one movement index used by MPLight/MAXPRESSURE.
-    state_len = max(1, len(state))
-    for idx, sig_state in enumerate(state):
-        movement = min(11, int((idx * 12) / state_len))
-        if sig_state == 'g' or sig_state == 'G':
-            active_movements.append(movement)
+    served = []
+    for movement_idx, movement_key in signal.movement_index_map.items():
+        signature, junction = movement_key  # unpack (signature, junction_prefix)
+        if signature[local_phase_idx] == 1:
+            n_lanes = len(signal.movement_lanes.get(movement_idx, []))
+            served.append((movement_idx, signature, n_lanes))
 
-    if len(active_movements) == 0:
-        return [0, 1]
+    if len(served) == 0:
+        raise ValueError(
+            f"signal '{signal.id}' phase {local_phase_idx}: no movement is "
+            f"green in this phase at all -- check movement_index_map."
+        )
 
-    # Rank movements by how many green links they control in this phase.
-    counts = {}
-    for movement in active_movements:
-        counts[movement] = counts.get(movement, 0) + 1
+    non_always_green = [(m, n) for (m, sig, n) in served if sig != all_green_sig]
+    ranked = sorted(non_always_green, key=lambda x: (-x[1], x[0]))
 
-    ranked = sorted(counts.keys(), key=lambda movement: (-counts[movement], movement))
+    if len(ranked) >= 2:
+        return [ranked[0][0], ranked[1][0]]
     if len(ranked) == 1:
-        return [ranked[0], ranked[0]]
-    return [ranked[0], ranked[1]]
+        return [ranked[0][0], ranked[0][0]]
+
+    print(
+        f"[WARNING] signal '{signal.id}' phase {local_phase_idx}: only "
+        f"always-green movement(s) {[m for m, _, _ in served]} are green "
+        f"here -- no non-always-green movement found for this phase. "
+        f"Falling back to {served[0][0]}, but VERIFY this phase manually."
+    )
+    fallback = served[0][0]
+    return [fallback, fallback]
 
 
 class Signal:
@@ -422,99 +475,65 @@ class Signal:
         irregular junctions and secondary satellite junctions folded into
         the same TLS (e.g. a bike-crossing gate riding along on the main
         4 phases, as in this map's screenshot).
-
-        WHY NOT signal.lane_sets: lane_sets always has up to 12 fixed
-        turn x approach-direction keys from generate_config(), but real
-        intersections vary in how many of those 12 are populated, and for
-        irregular junctions phase_pairs' indexing often doesn't
-        correspond to that scheme at all — confirmed directly against
-        J01: all 12 lane_sets directions were populated (no empties to
-        drop), yet phase_pairs only ever needs 9 movement indices. So
-        lane_sets simply isn't the right abstraction here.
-
-        THE RULE USED INSTEAD: a "movement" is a distinct green/red
-        pattern across this signal's own phases. For each controlled-link
-        position, build a tuple of which phases it's green ('G'/'g') in.
-        Two positions sharing a tuple always turn green/red together, so
-        FRAP can treat them as one movement. Positions green in NO real
-        phase (unused/phantom links) are excluded — they're not a
-        movement at all. Each remaining distinct signature becomes one
-        movement index.
-
-        *** ALWAYS-GREEN POSITIONS (signature = green in every phase) ***
-        An earlier version of this method excluded these outright as
-        "uncontested". That was tested against J01's REAL SUMO phase data
-        (not just the hand-typed strings used during initial development)
-        and found to be WRONG for this intersection: J01 has two distinct
-        always-green links — one on the main junction ('01.01#N0_1') and
-        one on the satellite junction ('01.02#S0_1', the bike-crossing
-        gate's companion lane from the screenshot). Excluding both
-        produced only 8 movements, but phase_pairs references index 8,
-        requiring 9. At least one of these always-green links is a real,
-        meaningful movement for this model — it just happens to never be
-        gated by THIS signal's 4 phases (e.g. one side of a bike/car
-        crossing permission that's structurally always-allowed).
-
-        There's no way to tell from phase.state alone which case applies
-        (truly-uncontested-and-irrelevant vs always-on-but-meaningful) —
-        that's a judgment about traffic semantics, not a green/red
-        pattern. So this method does NOT exclude always-green positions
-        by default: they get grouped into their own movement(s) like any
-        other signature (all all-green positions share the same all-1s
-        signature, so they're grouped together as ONE additional
-        movement unless you tell this method otherwise). For J01 this
-        produces 8 (already-distinct) + 1 (merged all-green) = 9,
-        matching phase_pairs.
-
-        *** THIS IS STILL A SIMPLIFICATION, NOT A VERIFIED ANSWER ***
-        Merging '01.01#N0_1' (main junction) and '01.02#S0_1' (satellite
-        junction) into the same movement index just because they share a
-        signature may or may not be semantically correct — they're
-        physically different links. The printed output below lists the
-        always-green group's lanes explicitly so you can check whether
-        that merge is acceptable, or whether phase_pairs intended these
-        as two separate movements (in which case you'd need to tell me
-        how to split them — there's no automatic way to do so from
-        phase.state alone).
-
+    
+        THE RULE USED: a "movement" is a distinct (green/red signature,
+        junction) pair across this signal's own phases. For each controlled-
+        link position, build a tuple of which phases it's green ('G'/'g') in,
+        AND note which physical junction the lane belongs to (the part of the
+        lane ID before '#', e.g. '01.01' vs '01.02'). Two positions are only
+        grouped into the same movement if they share BOTH the same green/red
+        signature AND the same junction prefix.
+    
+        *** WHY THE JUNCTION PREFIX MATTERS ***
+        An earlier version grouped purely by signature. On J01 this merged
+        '01.01#N0_1' (main junction) and '01.02#S0_1' (satellite junction,
+        the bike-crossing gate's companion lane) into a single "movement 8"
+        just because both happen to be always-green across this signal's 4
+        phases. They are physically unrelated approach lanes on different
+        junctions, so collapsing them into one movement was wrong: it
+        double-purposed phase_pairs entries that referenced movement 8 (e.g.
+        phase_pairs[1] = [1, 8]) to mean two different physical locations at
+        once, and diluted/confused the demand signal the network learned to
+        associate with that phase pair, which produced a learned policy that
+        systematically avoided selecting it (verified against J01 deployment:
+        the agent essentially never served phase 1's real movement).
+        Splitting by (signature, junction_prefix) keeps every other grouping
+        decision from the original method unchanged, but stops semantically
+        unrelated lanes on different junctions from ever being merged purely
+        because their timing coincides.
+    
+        Positions green in NO real phase (unused/phantom links) are still
+        excluded entirely, same as before — they're not a movement at all.
+    
         Sets:
-            self.movement_index_map: dict[int -> tuple] — movement_index
-                -> the green-phase signature defining it, e.g. (1,0,0,1)
-                meaning "green in phase 0 and phase 3". A tuple rather
-                than a direction string, since there is no general
-                cardinal-direction label for an arbitrary signature on an
-                irregular junction. The all-green group, if present, uses
-                a signature of all 1s (e.g. (1,1,1,1) for a 4-phase
-                signal).
-            self.movement_lanes: dict[int -> list[str]] — movement_index
-                -> controlled-link INBOUND lanes sharing that signature.
-                This is what the state fn sums queue/bike_queue over,
-                replacing signal.lane_sets[direction] from the earlier
-                approach.
+            self.movement_index_map: dict[int -> (signature, junction_prefix)]
+                — movement_index -> the (green-phase signature, junction)
+                pair defining it, e.g. ((1,0,0,1), '01.01') meaning "green in
+                phase 0 and phase 3, on junction 01.01".
+            self.movement_lanes: dict[int -> list[str]] — movement_index ->
+                controlled-link INBOUND lanes sharing that (signature,
+                junction) pair.
             self.movement_out_lanes: dict[int -> list[str]] — movement_index
-                -> the corresponding OUTBOUND lanes (the far side of the
-                same controlled-link position), derived directly from
-                getControlledLinks' (in_lane, out_lane) pairing — NOT from
-                lane_sets_outbound's direction-string matching, which uses
-                a different, unconnected vocabulary. This lets the state/
-                reward functions look up which lanes (and therefore which
-                downstream signal) receive traffic from each movement,
-                fully generally, to restore the inbound-minus-downstream
-                pressure term the original mplight() reward/state used.
-
-        Ordering (still requires your verification): movements are
-        numbered by each signature's FIRST occurrence position across
-        the phase strings (phase 0 before phase 1, left to right within a
-        phase), with the always-green group (if present) placed LAST
-        regardless of position — since "always on" doesn't have a
-        natural position in the competing-phase ordering, and putting it
-        last avoids disturbing the relative order of the genuinely
-        phase-varying movements you already verified. There is still no
-        way to confirm from code alone that this matches the order
-        phase_pairs' 0..K-1 indices were originally intended to mean —
-        the printed mapping below (signature AND lanes) is so you can
-        check that against the real intersection layout before trusting
-        training results.
+                -> the corresponding OUTBOUND lanes, derived directly from
+                getControlledLinks' (in_lane, out_lane) pairing.
+    
+        Ordering: movements are numbered by each (signature, junction) pair's
+        FIRST occurrence position across the phase strings (phase 0 before
+        phase 1, left to right within a phase). Always-green groups are no
+        longer forced to the end as a single block — since they may now be
+        split into multiple distinct movements (one per junction), each
+        split piece is ordered by its own first-occurrence position like any
+        other movement. This means movement indices may differ from a
+        previous run that used pure-signature grouping; phase_pairs MUST be
+        regenerated/re-verified against the new self.movement_index_map
+        printed below, not assumed to still match the old indices.
+    
+        *** STILL REQUIRES YOUR VERIFICATION ***
+        The junction-prefix split assumes junction membership is fully and
+        correctly captured by the lane-ID prefix before '#' (true for J01's
+        '01.01' vs '01.02' naming, per the map screenshot's main+satellite
+        junction structure) — verify this convention holds for any other
+        map you apply this to before trusting its movement counts.
         """
         flat_inbound = getattr(self, '_flat_inbound_lanes', None)
         if flat_inbound is None:
@@ -522,11 +541,7 @@ class Signal:
                 "_build_movement_index_map requires _build_phase_lane_maps "
                 "to have run first (needs self._flat_inbound_lanes)."
             )
-
-        # Outbound lane per position, mirroring flat_inbound's construction
-        # but taking the link's SECOND element (out_lane) instead of the
-        # first. Built fresh here (rather than reusing flat_inbound) since
-        # _build_phase_lane_maps only kept the inbound side.
+    
         raw_links = self.sumo.trafficlight.getControlledLinks(self.id)
         flat_outbound = []
         for group in raw_links:
@@ -542,82 +557,85 @@ class Signal:
             if chosen is None and group[0] and len(group[0]) > 1:
                 chosen = group[0][1]
             flat_outbound.append(chosen)
-
+    
+        def junction_prefix(lane):
+            """Lane ID prefix before '#', identifying the physical junction
+            this lane belongs to, e.g. '01.01#N0_1' -> '01.01'. Falls back to
+            the whole lane id if no '#' is present (shouldn't happen for real
+            controlled-link lanes on this map convention, but avoids a crash
+            if it does)."""
+            return lane.split('#')[0] if '#' in lane else lane
+    
         num_phases = self.num_green_phases
-        signature_to_lanes = {}
-        signature_to_out_lanes = {}
-        signature_first_pos = {}
-        all_green_signature = tuple([1] * num_phases) if num_phases > 0 else tuple()
-
+        group_to_lanes = {}
+        group_to_out_lanes = {}
+        group_first_pos = {}
+    
         state_len = len(self.phases[0].state) if num_phases > 0 else 0
         for pos in range(state_len):
             lane = flat_inbound[pos] if pos < len(flat_inbound) else None
             if lane is None or lane.startswith(':'):
                 continue  # phantom / internal connector — not a real approach lane
-
+    
             signature = tuple(
                 1 if (pos < len(self.phases[p].state) and self.phases[p].state[pos] in ('G', 'g')) else 0
                 for p in range(num_phases)
             )
-
+    
             if sum(signature) == 0:
                 continue  # never green in any real phase — not a movement at all
-
-            # NOTE: always-green (signature == all 1s) is intentionally
-            # NOT excluded here — see docstring above for why an earlier
-            # version's exclusion was tested against real J01 data and
-            # found to drop a meaningful movement (8 vs the required 9).
-            # All always-green positions are grouped together under
-            # all_green_signature, same as any other shared signature.
-
-            if signature not in signature_to_lanes:
-                signature_to_lanes[signature] = []
-                signature_to_out_lanes[signature] = []
-                signature_first_pos[signature] = pos
-            if lane not in signature_to_lanes[signature]:
-                signature_to_lanes[signature].append(lane)
-
+    
+            # Group by (signature, junction) instead of signature alone — see
+            # docstring for why this matters (always-green merge bug on J01).
+            group_key = (signature, junction_prefix(lane))
+    
+            if group_key not in group_to_lanes:
+                group_to_lanes[group_key] = []
+                group_to_out_lanes[group_key] = []
+                group_first_pos[group_key] = pos
+            if lane not in group_to_lanes[group_key]:
+                group_to_lanes[group_key].append(lane)
+    
             out_lane = flat_outbound[pos] if pos < len(flat_outbound) else None
-            if out_lane and not out_lane.startswith(':') and out_lane not in signature_to_out_lanes[signature]:
-                signature_to_out_lanes[signature].append(out_lane)
-
-        # Order: phase-varying signatures by first occurrence, with the
-        # always-green group (if present) placed last.
-        varying_signatures = sorted(
-            (s for s in signature_to_lanes if s != all_green_signature),
-            key=lambda s: signature_first_pos[s],
-        )
-        ordered_signatures = varying_signatures
-        if all_green_signature in signature_to_lanes:
-            ordered_signatures = varying_signatures + [all_green_signature]
-
-        self.movement_index_map = {i: sig for i, sig in enumerate(ordered_signatures)}
-        self.movement_lanes = {i: signature_to_lanes[sig] for i, sig in enumerate(ordered_signatures)}
-        self.movement_out_lanes = {i: signature_to_out_lanes[sig] for i, sig in enumerate(ordered_signatures)}
-
+            if out_lane and not out_lane.startswith(':') and out_lane not in group_to_out_lanes[group_key]:
+                group_to_out_lanes[group_key].append(out_lane)
+    
+        # Order purely by first-occurrence position — no special-casing for
+        # always-green groups anymore, since they may now be split across
+        # multiple junctions and each split piece should sort independently.
+        ordered_groups = sorted(group_to_lanes.keys(), key=lambda g: group_first_pos[g])
+    
+        self.movement_index_map = {i: g for i, g in enumerate(ordered_groups)}
+        self.movement_lanes = {i: group_to_lanes[g] for i, g in enumerate(ordered_groups)}
+        self.movement_out_lanes = {i: group_to_out_lanes[g] for i, g in enumerate(ordered_groups)}
+    
         print(
             f"[{self.id}] derived {len(self.movement_index_map)} movements from "
-            f"phase green-signatures: {self.movement_index_map}"
+            f"phase green-signatures split by junction: {self.movement_index_map}"
         )
         print(f"[{self.id}] movement -> inbound lanes: {self.movement_lanes}")
         print(f"[{self.id}] movement -> outbound lanes: {self.movement_out_lanes}")
-        if all_green_signature in signature_to_lanes:
-            always_green_idx = ordered_signatures.index(all_green_signature)
-            print(
-                f"[{self.id}] *** movement {always_green_idx} is an ALWAYS-GREEN "
-                f"group (green in every one of this signal's {num_phases} phases) — "
-                f"its lanes are {signature_to_lanes[all_green_signature]}. These "
-                f"lanes are merged into ONE movement just because they share a "
-                f"signature, which may not be semantically correct if they're "
-                f"physically unrelated links (e.g. one on the main junction, one "
-                f"on a satellite junction). VERIFY this merge is acceptable before "
-                f"trusting training results."
-            )
+    
+        # Flag any always-green movements explicitly, same spirit as before,
+        # but now per-junction rather than merged.
+        all_green_sig = tuple([1] * num_phases) if num_phases > 0 else tuple()
+        for i, (sig, junc) in self.movement_index_map.items():
+            if sig == all_green_sig:
+                print(
+                    f"[{self.id}] *** movement {i} is an ALWAYS-GREEN movement on "
+                    f"junction '{junc}' (green in every one of this signal's "
+                    f"{num_phases} phases) — lanes: {self.movement_lanes[i]}. This "
+                    f"is now isolated to lanes on junction '{junc}' only (no "
+                    f"longer merged with always-green lanes on other junctions). "
+                    f"VERIFY this is the movement set you expect before trusting "
+                    f"any phase_pairs entries that reference index {i}."
+                )
+    
         print(
-            f"[{self.id}] >>> VERIFY THIS against the real intersection layout "
-            f"before trusting training results — there is no way to confirm "
-            f"from code alone that this ordering matches what phase_pairs' "
-            f"indices were intended to mean."
+            f"[{self.id}] >>> movement indices may have CHANGED from a previous "
+            f"pure-signature run. Regenerate/re-verify phase_pairs against this "
+            f"printed mapping before training — do not assume old indices "
+            f"(e.g. a previous 'movement 8') still refer to the same lanes."
         )
 
     def _collect_ped_crossing_pressure(self):

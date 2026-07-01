@@ -264,7 +264,7 @@ map_configs = {
         'yellow_length': 3,
         'step_ratio': 1,
         'start_time': 0,
-        'end_time': 3600,
+        'end_time': 5400,
         'warmup': 0
     },
     'kbh_j9_442m': {
@@ -275,7 +275,7 @@ map_configs = {
         'yellow_length': 3,
         'step_ratio': 1,
         'start_time': 0,
-        'end_time': 3600,
+        'end_time': 5400,
         'warmup': 0
     }
 

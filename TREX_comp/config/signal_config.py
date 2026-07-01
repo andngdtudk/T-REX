@@ -1513,9 +1513,9 @@ signal_configs = {
                                                                                                                                                                                                                                                            'W': None},
 
 	'kbh_j1_442m': {
-    'phase_pairs': [[0, 4], [1, 8], [2, 6], [4, 7]],
-    'valid_acts': {'J01': {0: 0, 1: 1, 2: 2, 3: 3}},
-    'num_movements': 9,   # must equal len(signal.movement_index_map) for every signal sharing the model
+    #'phase_pairs': [[0, 4], [1, 8], [2, 6], [4, 7]],
+    #'valid_acts': {'J01': {0: 0, 1: 1, 2: 2, 3: 3}},
+    #num_movements': 11,   # must equal len(signal.movement_index_map) for every signal sharing the model
 	'ped_detect_distance': 15.0
 },
 

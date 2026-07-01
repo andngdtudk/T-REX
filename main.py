@@ -178,7 +178,7 @@ def run_trial(args, trial):
     # === Agent Setup ===
     alg = agt_config['agent']
     num_steps_eps = int((map_config['end_time'] - map_config['start_time']) / map_config['step_length'])
-    train_eps = max(1, int(args.eps * 0.8))
+    train_eps = max(1, args.eps) # avoid full greediness after episode 80
     train_steps = max(1, train_eps * num_steps_eps)
     run_log_dir = os.path.join(args.log_dir, env.connection_name)
     load_dir = args.load_dir if args.load_dir else run_log_dir

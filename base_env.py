@@ -37,16 +37,6 @@ class BaseEnv(gym.Env):
         self.step_ratio = step_ratio
         self.connection_name = run_name + '-' + map_name + '---' + state_fn.__name__ + '-' + reward_fn.__name__
         self.map_name = map_name
-        try:
-            self.force_jupedsim = "kbh" in str(map_name)   # Force jupedsim for kbh maps
-        except:
-            self.force_jupedsim = False
-            print("Error checking map name for jupedsim, defaulting to no forced jupedsim. Error was:")
-            traceback.print_exc()
-
-        disable_jupedsim = os.getenv("TREX_DISABLE_JUPEDSIM", "").strip().lower() in {"1", "true", "yes", "on"}
-        if disable_jupedsim:
-            self.force_jupedsim = False
 
         # Run some steps in the simulation with default light configurations to detect phases
         if self.route is not None:
@@ -72,8 +62,9 @@ class BaseEnv(gym.Env):
             for lightID in self.signal_ids
         }
 
-        ensure_map_signal_control_config(self.map_name, self.phases)
-
+        # NOTE: ensure_map_signal_control_config's call MOVED from here to
+        # after Signal construction below; it now needs real Signal objects
+        # (with movement_index_map already built) rather than raw phases.
 
         self.signals = dict()
 
@@ -94,12 +85,20 @@ class BaseEnv(gym.Env):
                 self.phases[ts],
                 max_green_hold_steps=self.max_green_hold_steps,
             )
+    
+        # MOVED HERE: all Signal objects now exist with real movement_index_map
+        # populated (built inside Signal.__init__), and NONE of them have had
+        # observe() called yet (so _collect_ped_crossing_pressure's valid_acts
+        # lookup hasn't run yet either) -- safe ordering.
+        ensure_map_signal_control_config(self.map_name, self.signals)
+    
         exported_file = export_map_signal_config(self.map_name)
         if exported_file is not None:
             print('Generated signal config file:', exported_file)
         for ts in self.all_ts_ids:
             self.signals[ts].signals = self.signals
-            self.signals[ts].observe(self.step_length, self.max_distance)
+            self.signals[ts].observe(self.step_length, self.max_distance)   # now safe: valid_acts exists
+
         observations = self.state_fn(self.signals)
         self.ts_order = list()
         for ts in observations:
@@ -171,8 +170,6 @@ class BaseEnv(gym.Env):
                           '--no-warnings', 'True',
                           #'--fcd-output', os.path.join(self.log_dir, self.connection_name, 'fcd_' + str(self.run) + '.xml')
                           ]
-        if self.force_jupedsim:
-            self.sumo_cmd += ['--pedestrian.model', 'jupedsim']
         if self.libsumo:
             traci.start(self.sumo_cmd)
             self.sumo = traci
@@ -224,24 +221,28 @@ class BaseEnv(gym.Env):
         for signal in self.signals:
             self.signals[signal].prep_phase(act[signal])
 
-        for step in range(self.yellow_length):
+        for _ in range(self.yellow_length):
             self.step_sim()
         for signal in self.signal_ids:
             self.signals[signal].set_phase()
-        for step in range(self.step_length - self.yellow_length):
+        for _ in range(self.step_length - self.yellow_length):
             self.step_sim()
         for signal in self.signal_ids:
             self.signals[signal].observe(self.step_length, self.max_distance)
 
         # debug
-        for signal_id in self.signal_ids:
-            for i in range(len(self.signals[signal_id].phases)):
-                count = self.signals[signal_id].sumo.trafficlight.getServedPersonCount(signal_id, i)
-                print(f"[DEBUG] {signal_id} phase {i}: getServedPersonCount={count}")
+        # for signal_id in self.signal_ids:
+        #     for i in range(len(self.signals[signal_id].phases)):
+        #         count = self.signals[signal_id].sumo.trafficlight.getServedPersonCount(signal_id, i)
+        #         print(f"[DEBUG] {signal_id} phase {i}: getServedPersonCount={count}")
 
-        # observe new state and reward
+        # real step counter — use simulation time, which is already
+        # authoritative and available regardless of how step_length/yellow_length
+        # are configured
+        sim_time = self.sumo.simulation.getTime()
+
         observations = self.state_fn(self.signals)
-        rewards = self.reward_fn(self.signals, step)
+        rewards = self.reward_fn(self.signals, sim_time)
 
         self.calc_metrics(rewards)
 

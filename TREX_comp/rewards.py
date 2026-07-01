@@ -287,7 +287,7 @@ def _resolve_multimodal_delta_config():
     return defaults
 
 
-def wait_multimodal_delta_sclip(signals):
+def wait_multimodal_delta_sclip(signals, sim_time):
     """Scaled + clipped delta of weighted multimodal wait reward (IDQN_MM2).
 
     Computes the *change* in combined waiting time per signal between the
@@ -487,7 +487,11 @@ def _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step):
             _pressure_log_initialized = True
         writer.writerow([step, signal_id, car_pressure, bike_pressure, ped_pressure])
 
-def mplight_mm(signals, step):
+#endregion
+#============================================================================================
+#region Pressure MM
+
+def mplight_mm(signals, sim_time):
     """Traffic-pressure reward extended with bike and pedestrian pressure.
  
     reward = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
@@ -514,7 +518,7 @@ def mplight_mm(signals, step):
     """
     rewards = dict()
 
-# We import weights from agent_config.py
+    # We import weights from agent_config.py
     W_BIKE = mdp_configs['MPLight_MM']['W_BIKE']
     W_PED = mdp_configs['MPLight_MM']['W_PED']
     PED_NORM = mdp_configs['MPLight_MM']['PED_NORM']
@@ -548,30 +552,9 @@ def mplight_mm(signals, step):
         # so typical values pass through unchanged and only the tail is capped.
         ped_pressure = min(ped_pressure_raw, PED_NORM)
 
-        _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure_raw, step)
+        _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure_raw, sim_time)
 
         rewards[signal_id] = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
-    return rewards
-
-def queue_maxwait(signals):
-    """MA2C local reward combining queue length and max waiting penalty.
-
-    Per signal reward is the negative weighted sum of lane queue and lane
-     maximum waiting time:
-     ``-(queue + coef * max_wait)``, where ``coef`` comes from
-     ``mdp_configs['MA2C']['coef']``.
-
-    MA2C-style worker reward component; not directly selected by any
-     current ``--agent`` option in this repository.
-    """
-    rewards = dict()
-    for signal_id in signals:
-        signal = signals[signal_id]
-        reward = 0
-        for lane in signal.lanes:
-            reward += signal.full_observation[lane]['queue']
-            reward += (signal.full_observation[lane]['max_wait'] * mdp_configs['MA2C']['coef'])
-        rewards[signal_id] = -reward
     return rewards
 
 
