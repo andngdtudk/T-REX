@@ -32,7 +32,7 @@ def summarize(name, series):
 
 def main(path):
     df = pd.read_csv(path)
-    required = {"car_pressure", "bike_pressure", "ped_pressure_raw"}
+    required = {"car_pressure", "bike_pressure", "ped_pressure"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Log is missing columns: {missing}")
@@ -42,7 +42,7 @@ def main(path):
 
     car_stats = summarize("car_pressure", df["car_pressure"])
     bike_stats = summarize("bike_pressure", df["bike_pressure"])
-    ped_stats = summarize("ped_pressure_raw", df["ped_pressure_raw"])
+    ped_stats = summarize("ped_pressure", df["ped_pressure"])
 
     # --- Suggested normalization ---
     # Strategy: match the *typical* (p90, robust-to-outliers) magnitude of
@@ -63,7 +63,7 @@ def main(path):
     print(f"  W_BIKE ~= {w_bike_scale:.4f}  (matches bike p90 |pressure| to car p90)")
     print(f"  W_PED  ~= {w_ped_scale:.4f}  (matches ped p90 |pressure| to car p90)")
 
-    # Clip recommendation: cap ped_pressure_raw at its own p99, so the rare
+    # Clip recommendation: cap ped_pressure at its own p99, so the rare
     # crowd-crossing event can't dominate any single reward, but everyday
     # variation up to "busy crossing" is still felt.
     ped_p99 = ped_stats["p99_abs"]
@@ -76,6 +76,22 @@ def main(path):
           "Re-check this distribution after training under the new weights — "
           "policy changes will shift the pressure distributions themselves.")
 
+    df = pd.read_csv("pressure_log.csv")
+    _check_clip_settings(df, ped_norm=22, ped_clip=4, w_bike=2.2, w_ped=3)
+
+
+def _check_clip_settings(df, ped_norm, ped_clip, w_bike, w_ped):
+    normed = df["ped_pressure"] / ped_norm
+    clipped = normed.clip(-ped_clip, ped_clip)
+    pct_clipped = (normed.abs() > ped_clip).mean() * 100
+    car_bike = (df["car_pressure"] + w_bike * df["bike_pressure"]).abs()
+
+    print(f"\n=== Clip check: PED_NORM={ped_norm}, PED_CLIP={ped_clip}, "
+          f"W_BIKE={w_bike}, W_PED={w_ped} ===")
+    print(f"  % of steps clipped         : {pct_clipped:.2f}%")
+    print(f"  typical |car+bike| (p90)   : {car_bike.quantile(0.90):.3f}")
+    print(f"  typical W_PED*|ped| (p90)  : {(w_ped * clipped.abs()).quantile(0.90):.3f}")
+    print(f"  max possible W_PED*ped     : {w_ped * ped_clip:.3f}")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:

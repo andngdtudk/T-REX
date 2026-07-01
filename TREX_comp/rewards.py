@@ -487,9 +487,6 @@ def _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step):
             _pressure_log_initialized = True
         writer.writerow([step, signal_id, car_pressure, bike_pressure, ped_pressure])
 
-W_BIKE = mdp_configs.get('W_BIKE', 1.0)
-W_PED = mdp_configs.get('W_PED', 1.0)
-
 def mplight_mm(signals, step):
     """Traffic-pressure reward extended with bike and pedestrian pressure.
  
@@ -516,9 +513,15 @@ def mplight_mm(signals, step):
     logic here.
     """
     rewards = dict()
+
+# We import weights from agent_config.py
+    W_BIKE = mdp_configs['MPLight_MM']['W_BIKE']
+    W_PED = mdp_configs['MPLight_MM']['W_PED']
+    PED_NORM = mdp_configs['MPLight_MM']['PED_NORM']
+
     for signal_id in signals:
         signal = signals[signal_id]
- 
+
         car_pressure = 0.0
         bike_pressure = 0.0
         for lane in signal.lanes:
@@ -527,7 +530,7 @@ def mplight_mm(signals, step):
             bike_queue = lane_obs.get('bike_queue', 0)
             car_pressure += (total_queue - bike_queue)
             bike_pressure += bike_queue
- 
+
         for lane in signal.outbound_lanes:
             dwn_signal = signal.out_lane_to_signalid[lane]
             if dwn_signal in signal.signals:
@@ -536,12 +539,17 @@ def mplight_mm(signals, step):
                 dwn_bike = dwn_obs.get('bike_queue', 0)
                 car_pressure -= (dwn_total - dwn_bike)
                 bike_pressure -= dwn_bike
- 
-        ped_pressure = sum(getattr(signal, 'ped_crossing_pressure', {}).values())
-        print(f"[DEBUG] step={step} signal_id={signal_id} car_pressure={car_pressure} bike_pressure={bike_pressure} ped_pressure={ped_pressure}")
 
-        _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step)
- 
+        ped_pressure_raw = sum(getattr(signal, 'ped_crossing_pressure', {}).values())
+        # Clip BEFORE weighting — a rare crowd-crossing event at one signal
+        # shouldn't be able to produce a TD error far outside what car/bike
+        # pressure ever produces. PED_NORM=22 was derived as the typical
+        # (p90-ish) magnitude; clip here uses it as a ceiling, not a divisor,
+        # so typical values pass through unchanged and only the tail is capped.
+        ped_pressure = min(ped_pressure_raw, PED_NORM)
+
+        _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure_raw, step)
+
         rewards[signal_id] = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
     return rewards
 
