@@ -204,7 +204,7 @@ agent_configs = {
             'BATCH_SIZE': 32,
             'GAMMA': 0.99,
             'EPS_START': 1.0,
-            'EPS_END': 0.0,
+            'EPS_END': 0.05, # was 0.0, avoid fully greedy
             'EPS_DECAY': 220,
             'TARGET_UPDATE': 500,
             'demand_shape': 2 # car and bike
