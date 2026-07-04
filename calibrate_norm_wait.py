@@ -10,7 +10,7 @@ before clipping.  clip_wait can then be set to 2-3 to allow a useful
 dynamic range without throwing away information.
 
 Usage:
-    python calibrate_norm_wait.py --log_dir results/IDQN_MM2-tr0-kbh_j1_442m/
+    python calibrate_norm_wait.py --log_dir results/IDQN_MM2-tr0-kbh_j1_442m-0-drq_mm2_delta-wait_multimodal_delta_sclip/
 
 Prints recommended mdp_configs values and writes calibration_report.txt.
 """
@@ -136,7 +136,7 @@ balanced weights bring it to ~33%.
     print(report)
 
     out_path = os.path.join(args.log_dir, "calibration_report.txt")
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(report)
     print(f"\n[saved] {out_path}")
 
