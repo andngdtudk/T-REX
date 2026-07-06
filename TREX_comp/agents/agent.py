@@ -31,7 +31,6 @@ def _safe_model_path(log_dir, agent_id, prefix="agent_", max_len=200):
         base_name = f"{prefix}{safe_id[: max_len - len(prefix) - 11]}_{digest}"
     return os.path.join(log_dir, base_name)
 
-
 class IndependentAgent(Agent):
     def __init__(self, config, obs_act, map_name, thread_number):
         super().__init__()

@@ -3,6 +3,7 @@ from time import sleep
 from unittest import signals
 
 import numpy as np
+import csv
 
 from TREX_comp.config.mdp_config import mdp_configs
 import traci
@@ -286,7 +287,7 @@ def _resolve_multimodal_delta_config():
     return defaults
 
 
-def wait_multimodal_delta_sclip(signals):
+def wait_multimodal_delta_sclip(signals, sim_time):
     """Scaled + clipped delta of weighted multimodal wait reward (IDQN_MM2).
 
     Computes the *change* in combined waiting time per signal between the
@@ -473,7 +474,24 @@ def pressure(signals):
         rewards[signal_id] = -queue_length
     return rewards
 
-def mplight_mm(signals):
+_PRESSURE_LOG_PATH = "pressure_log.csv"
+_pressure_log_initialized = False
+
+def _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure, step):
+    global _pressure_log_initialized
+    mode = 'a' if _pressure_log_initialized else 'w'
+    with open(_PRESSURE_LOG_PATH, mode, newline='') as f:
+        writer = csv.writer(f)
+        if not _pressure_log_initialized:
+            writer.writerow(['step', 'signal_id', 'car_pressure', 'bike_pressure', 'ped_pressure'])
+            _pressure_log_initialized = True
+        writer.writerow([step, signal_id, car_pressure, bike_pressure, ped_pressure])
+
+#endregion
+#============================================================================================
+#region Pressure MM
+
+def mplight_mm(signals, sim_time):
     """Traffic-pressure reward extended with bike and pedestrian pressure.
  
     reward = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
@@ -482,22 +500,32 @@ def mplight_mm(signals):
     pressure as the original mplight reward, split by vehicle class using
     the 'queue' / 'bike_queue' lane fields.
  
-    ped_pressure: sum over all of this signal's pedestrian crossings of
-    signal.ped_crossing_pressure[direction] (approaching-minus-leaving,
-    camera-style, see Signal._collect_ped_crossing_pressure). Unlike the
-    vehicle terms there's no "downstream signal" to subtract for
-    pedestrians — crossing a leg of THIS intersection doesn't create
-    pressure at the next intersection the way a vehicle queue does, so we
-    don't apply the same upstream-minus-downstream logic here.
+    ped_pressure: sum over all of this signal's phase pairs of
+    signal.ped_crossing_pressure[pair_idx] — SUMO's own
+    traci.trafficlight.getServedPersonCount() per phase (see
+    Signal._collect_ped_crossing_pressure), already keyed by GLOBAL
+    phase_pairs index, not a crossing id. This replaced three earlier
+    designs (cardinal-direction bucketing, real-edge path tracing,
+    walking-area presence polling) that each had confirmed problems on
+    real network topology/pedestrian-model behavior; getServedPersonCount
+    is SUMO's own built-in answer to "how many people would be served by
+    this phase," so this code no longer does any crossing detection
+    itself. Unlike the vehicle terms there's no "downstream signal" to
+    subtract for pedestrians — crossing a leg of THIS intersection
+    doesn't create pressure at the next intersection the way a vehicle
+    queue does, so we don't apply the same upstream-minus-downstream
+    logic here.
     """
-
-    W_BIKE = mdp_configs.get('W_BIKE', 1.0)
-    W_PED = mdp_configs.get('W_PED', 1.0)
-
     rewards = dict()
+
+    # We import weights from agent_config.py
+    W_BIKE = mdp_configs['MPLight_MM']['W_BIKE']
+    W_PED = mdp_configs['MPLight_MM']['W_PED']
+    PED_NORM = mdp_configs['MPLight_MM']['PED_NORM']
+
     for signal_id in signals:
         signal = signals[signal_id]
- 
+
         car_pressure = 0.0
         bike_pressure = 0.0
         for lane in signal.lanes:
@@ -506,7 +534,7 @@ def mplight_mm(signals):
             bike_queue = lane_obs.get('bike_queue', 0)
             car_pressure += (total_queue - bike_queue)
             bike_pressure += bike_queue
- 
+
         for lane in signal.outbound_lanes:
             dwn_signal = signal.out_lane_to_signalid[lane]
             if dwn_signal in signal.signals:
@@ -515,32 +543,18 @@ def mplight_mm(signals):
                 dwn_bike = dwn_obs.get('bike_queue', 0)
                 car_pressure -= (dwn_total - dwn_bike)
                 bike_pressure -= dwn_bike
- 
-        ped_pressure = sum(getattr(signal, 'ped_crossing_pressure', {}).values())
- 
+
+        ped_pressure_raw = sum(getattr(signal, 'ped_crossing_pressure', {}).values())
+        # Clip BEFORE weighting — a rare crowd-crossing event at one signal
+        # shouldn't be able to produce a TD error far outside what car/bike
+        # pressure ever produces. PED_NORM=22 was derived as the typical
+        # (p90-ish) magnitude; clip here uses it as a ceiling, not a divisor,
+        # so typical values pass through unchanged and only the tail is capped.
+        ped_pressure = min(ped_pressure_raw, PED_NORM)
+
+        _log_pressures(signal_id, car_pressure, bike_pressure, ped_pressure_raw, sim_time)
+
         rewards[signal_id] = -(car_pressure + W_BIKE * bike_pressure + W_PED * ped_pressure)
-    return rewards
-
-
-def queue_maxwait(signals):
-    """MA2C local reward combining queue length and max waiting penalty.
-
-    Per signal reward is the negative weighted sum of lane queue and lane
-     maximum waiting time:
-     ``-(queue + coef * max_wait)``, where ``coef`` comes from
-     ``mdp_configs['MA2C']['coef']``.
-
-    MA2C-style worker reward component; not directly selected by any
-     current ``--agent`` option in this repository.
-    """
-    rewards = dict()
-    for signal_id in signals:
-        signal = signals[signal_id]
-        reward = 0
-        for lane in signal.lanes:
-            reward += signal.full_observation[lane]['queue']
-            reward += (signal.full_observation[lane]['max_wait'] * mdp_configs['MA2C']['coef'])
-        rewards[signal_id] = -reward
     return rewards
 
 

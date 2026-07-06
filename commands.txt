@@ -26,16 +26,24 @@ export TREX_DISABLE_JUPEDSIM=1
 
 en linux
 python3 main.py --agent IDQN_MM2 --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 | tee logs\idqn_mm2.log
+python3 main.py --agent MPLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 | tee logs\mplight_mm.log
+
 
 en win
-$env:LIBSUMO_AS_TRACI = "1" 
+$env:LIBSUMO_AS_TRACI = "1"
 New-Item -ItemType Directory -Path logs -Force
-python main.py --agent IDQN --map kbh_red_420 --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs/idqn.log 
+python main.py --agent IDQN_MM2 --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs/idqn_mm2.log
+python main.py --agent MPLight_MM --map kbh_j1_442m --eps 1 --tr 0 --strategy 1 --max_green_hold 12 | Tee-Object -FilePath logs/mplight_mm.log 
+
 
 LOAD CON GUI:
 Remove-Item Env:LIBSUMO_AS_TRACI
 Get-ChildItem Env:LIBSUMO_AS_TRACI
 python main.py --agent IDQN_MM2 --map kbh_j1_442m --load True --eps 1 --gui True --no-libsumo --strategy 1 --load_dir "results15_bikesout\IDQN_MM2-tr0-kbh_j1_442m-0-drq_mm2_delta-wait_multimodal_delta_sclip\"
+python main.py --agent MPLight_MM --map kbh_j1_442m --load True --eps 1 --gui True --no-libsumo --strategy 1 --load_dir "results\MPLight_MM-tr0-kbh_j1_442m-0-mplight_mm-mplight_mm\"
+
+OR
+unset LIBSUMO_AS_TRACI
 
 python plot2.py
 python analyze_mm_metrics.py --log_dir results/IDQN_MM2-tr0-kbh_j1_442m-0-drq_mm2_delta-wait_multimodal_delta_sclip

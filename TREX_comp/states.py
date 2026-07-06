@@ -404,9 +404,19 @@ def mplight_mm(signals):
     lane_sets_outbound (which uses the unrelated direction-string
     vocabulary and doesn't correspond to this movement indexing).
  
-    ped_pressure for phase_pair i = sum of signal.ped_crossing_pressure[d]
-    for every crossing direction d served during that phase pair (per
-    Signal._build_phase_pair_ped_crossings).
+    ped_pressure for phase_pair i = signal.ped_crossing_pressure[i] directly
+    — i.e. traci.trafficlight.getServedPersonCount(signal.id, local_phase)
+    for whichever local SUMO phase valid_acts maps pair_idx i to (computed
+    in Signal._collect_ped_crossing_pressure, called from observe()).
+    This REPLACES three earlier, more complex designs (cardinal-direction
+    bucketing, real-edge path tracing, walking-area presence polling) —
+    all of which had confirmed problems on J01's actual topology/pedestrian
+    model. getServedPersonCount is SUMO's own built-in answer to exactly
+    this question ("how many people would be served by this phase"), so
+    no crossing detection, lane-to-edge conversion, or per-substep
+    polling is needed in this state function at all anymore — the
+    pressure dict is already keyed by GLOBAL pair_idx (an int), not by a
+    crossing id, so it's used directly with no intermediate lookup.
  
     Requires Signal to expose (see signals.py):
         - signal.movement_index_map: dict[int -> signature tuple]
@@ -416,7 +426,8 @@ def mplight_mm(signals):
           built in Signal.__init__ from the lane_sets_outbound block —
           still valid here since it's just "which signal owns this lane",
           independent of which vocabulary identified the lane)
-        - signal.phase_pair_ped_crossings, signal.ped_crossing_pressure
+        - signal.ped_crossing_pressure: dict[pair_idx -> float], already
+          keyed by GLOBAL phase_pairs index
     """
     observations = dict()
     for signal_id in signals:
@@ -459,14 +470,17 @@ def mplight_mm(signals):
  
         # Pedestrian context, one scalar per GLOBAL phase_pair index for
         # this signal's map. Phase pairs this signal doesn't actually use
-        # (not in its valid_acts) stay zero.
+        # (not in its valid_acts) stay zero. signal.ped_crossing_pressure
+        # is already keyed by global pair_idx directly (see
+        # Signal._collect_ped_crossing_pressure) — no per-crossing lookup
+        # needed anymore.
         num_phase_pairs = len(signal_configs[signal.map_name]['phase_pairs'])
         ped_block = np.zeros(num_phase_pairs, dtype=np.float32)
         crossing_pressure = getattr(signal, 'ped_crossing_pressure', {})
-        for pair_idx, directions in getattr(signal, 'phase_pair_ped_crossings', {}).items():
+        for pair_idx, value in crossing_pressure.items():
             if pair_idx >= num_phase_pairs:
                 continue
-            ped_block[pair_idx] = sum(crossing_pressure.get(d, 0.0) for d in directions)
+            ped_block[pair_idx] = value
  
         obs.extend(ped_block.tolist())
         observations[signal_id] = np.asarray(obs, dtype=np.float32)

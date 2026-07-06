@@ -129,26 +129,30 @@ class DQNAgent(Agent):
 
         self.model = model
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
-        replay_buffer = replay_buffers.ReplayBuffer(10000)
+        #replay_buffer = replay_buffers.ReplayBuffer(10000)
+        replay_buffer = replay_buffers.ReplayBuffer(50000) # fixing MPLight instability
         self.last_statistics = {}
 
         # expose for logging
         self._explore = None
+        decay_steps = config.get('EPS_DECAY', config['steps'])
 
         if num_agents > 0:
             explorer = SharedEpsGreedy(
                 config['EPS_START'],
                 config['EPS_END'],
-                num_agents*config['steps'],
+                num_agents*decay_steps,
                 lambda: np.random.randint(act_space),
             )
+            print('DEBUG: USING SHARED EXPLORER WITH DECAY STEPS', num_agents*decay_steps, 'num_agents', num_agents)
         else:
             explorer = explorers.LinearDecayEpsilonGreedy(
                 config['EPS_START'],
                 config['EPS_END'],
-                config['steps'],
+                decay_steps,
                 lambda: np.random.randint(act_space),
             )
+            print('DEBUG: USING INDIVIDUAL EXPLORER WITH DECAY STEPS', decay_steps)
 
         # keep track of explorer for logging
         self._explorer = explorer

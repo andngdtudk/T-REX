@@ -59,6 +59,16 @@ class MPLight_MM(SharedAgent):
                 f"per-movement demand block."
             )
 
+        # num_movements may now be dict[signal_id -> int] (movement count
+        # can legitimately differ per signal). SharedAgent batches every
+        # signal through one shared model, so we need a single global
+        # width: take the max here, and rely on the state fn
+        # (mplight_mm in state_mplight_mm.py) zero-padding any shorter
+        # signal's state vector up to this same width — same approach
+        # already used for the pedestrian block, for the same reason.
+        if isinstance(num_movements, dict):
+            num_movements = max(num_movements.values())
+
         comp_mask = []
         for i in range(len(phase_pairs)):
             zeros = np.zeros(len(phase_pairs) - 1, dtype=int)
