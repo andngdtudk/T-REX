@@ -453,9 +453,9 @@ mdp_configs = {
     },
     "MPLight_MM": {
         'kbh_j1_442m': {
-            "W_BIKE": 0.92, # was 0.83
-            "W_PED": 7.99, # was 8.93
-            "PED_NORM": 13.0,
+            "W_BIKE": 2.267, # was 0.83, then 0.92, then 0.82
+            "W_PED": 3.091, # was 8.93, then 7.99, then 7.49
+            "PED_NORM": 18 # was 13, then 15
         }
     },
 }
