@@ -195,7 +195,6 @@ agent_configs = {
         'demand_shape': 1
     },
 
-    # TODO remove num_phase_pair explicitiness
     'MPLight_MM': {
             'agent': MPLight_MM,
             'state': states.mplight_mm,

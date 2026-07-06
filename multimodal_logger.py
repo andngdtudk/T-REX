@@ -288,11 +288,19 @@ def _extract_loss(agent) -> float:
 # The only additions are the `mm_logger` and `episode_num` parameters and
 # two lines inside the loop body.
 
-def run_episode_mm(env, agent, obs=None, episode_index=None, log_state_csv=None,
-                   mm_logger=None, episode_num=None):
+def run_episode(env, agent, obs=None, episode_index=None, log_state_csv=None,
+                mm_logger=None, episode_num=None):
     """Drop-in replacement for run_episode that feeds the MultimodalLogger."""
     import os as _os
     debug_episode = _os.getenv("TREX_DEBUG_EPISODE", "").strip().lower() in {"1", "true", "yes", "on"}
+    try:
+        from main import _log_state_features as _main_log_state_features
+        from main import _log_step_reward as _main_log_step_reward
+        from main import _log_step_metrics as _main_log_step_metrics
+    except Exception:
+        _main_log_state_features = None
+        _main_log_step_reward = None
+        _main_log_step_metrics = None
 
     if obs is None:
         obs = env.reset()
@@ -323,12 +331,17 @@ def run_episode_mm(env, agent, obs=None, episode_index=None, log_state_csv=None,
             )
         # ---------------------------------------------------------------
 
-        # keep existing helpers
-        from main import _log_state_features, _log_step_reward, _log_step_metrics
-        _log_state_features(obs, episode_index, decisions + 1, log_state_csv)
-        _log_step_reward(env, rew, decisions + 1)
+        # keep existing helpers when the refactored main module exposes them
+        if _main_log_state_features is not None:
+            _main_log_state_features(obs, episode_index, decisions + 1, log_state_csv)
+        if _main_log_step_reward is not None:
+            try:
+                _main_log_step_reward(env, rew, decisions + 1)
+            except Exception:
+                pass
         agent.observe(obs, rew, done, info)
-        _log_step_metrics(agent, step_metrics, decisions + 1)
+        if _main_log_step_metrics is not None:
+            _main_log_step_metrics(agent, step_metrics, decisions + 1)
         decisions += 1
 
         if decisions % 100 == 0:
@@ -340,3 +353,11 @@ def run_episode_mm(env, agent, obs=None, episode_index=None, log_state_csv=None,
 
     sim_time = env.sumo.simulation.getTime() if hasattr(env, "sumo") else -1
     return {"decisions": decisions, "sim_time": sim_time, "done": done}
+
+
+# Backward-compatible alias for older refactors that imported the helper
+# under the previous name.
+run_episode_mm = run_episode
+
+
+__all__ = ["MultimodalLogger", "run_episode", "run_episode_mm"]

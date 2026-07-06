@@ -78,7 +78,42 @@ def parse_arguments():
         default=12,
         help="Maximum consecutive control decisions to keep the same green phase before forcing a switch.",
     )
-    
+
+    # --- New: repeated runs for averaging over stochasticity ---
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help=(
+            "Number of times to run the full training/testing procedure sequentially, one "
+            "after the other, so that per-epoch values can be averaged across runs to account "
+            "for the method's inherent stochasticity. Result folders for each repeat get "
+            "'_run<N>' appended (N starting at 1). Default is 1 (single run, no suffix), which "
+            "preserves prior behavior exactly."
+        ),
+    )
+
+    # --- New: directly pluggable bike/pedestrian reward weights ---
+    parser.add_argument(
+        "--w_bike", type=float, default=None,
+        help=(
+            "Weight applied to the bike-related component of the reward. Exposed to the rest "
+            "of the codebase via the 'W_BIKE' environment variable and via agt_config['w_bike'], "
+            "so it can be read directly wherever bike reward weighting is computed. Left unset "
+            "(None) by default, in which case downstream code should fall back to its own default."
+        ),
+    )
+    parser.add_argument(
+        "--w_ped", type=float, default=None,
+        help=(
+            "Weight applied to the pedestrian-related component of the reward. Exposed to the "
+            "rest of the codebase via the 'W_PED' environment variable and via "
+            "agt_config['w_ped'], so it can be read directly wherever pedestrian reward "
+            "weighting is computed. Left unset (None) by default, in which case downstream code "
+            "should fall back to its own default."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -88,16 +123,38 @@ def main():
     if args.libsumo and not os.environ.get('LIBSUMO_AS_TRACI'):
         raise EnvironmentError("Set LIBSUMO_AS_TRACI to a nonempty value to enable libsumo.")
 
+    # Expose W_BIKE / W_PED as environment variables (in addition to being threaded
+    # through agt_config in run_trial) so any module in the codebase can read them
+    # directly, e.g. via os.environ.get('W_BIKE'), without needing to be passed
+    # the CLI args explicitly. Only set if the user actually supplied a value, so
+    # unset behaves exactly as before (downstream defaults apply).
+    if args.w_bike is not None:
+        os.environ['W_BIKE'] = str(args.w_bike)
+    if args.w_ped is not None:
+        os.environ['W_PED'] = str(args.w_ped)
+
+    repeats = max(1, args.repeats)
+
     if args.procs == 1 or args.libsumo:
-        run_trial(args, args.tr)
+        # libsumo only supports a single active connection per process, so repeats
+        # (like multiple trials) must run sequentially here regardless of --procs.
+        for run_idx in range(1, repeats + 1):
+            if repeats > 1:
+                print(f"=== Starting repeat run {run_idx}/{repeats} ===", flush=True)
+            run_trial(args, args.tr, run_idx=run_idx if repeats > 1 else None)
     else:
         with mp.Pool(processes=args.procs) as pool:
             for trial in range(1, args.trials + 1):
-                pool.apply_async(run_trial, args=(args, trial))
+                for run_idx in range(1, repeats + 1):
+                    pool.apply_async(
+                        run_trial,
+                        args=(args, trial),
+                        kwds={'run_idx': run_idx if repeats > 1 else None},
+                    )
             pool.close()
             pool.join()
 
-def run_trial(args, trial):
+def run_trial(args, trial, run_idx=None):
     # === Load Configurations ===
     agent_key = AGENT_ALIASES.get(args.agent, args.agent)
     mdp_key = args.agent if args.agent in mdp_configs else agent_key
@@ -118,14 +175,26 @@ def run_trial(args, trial):
                 for worker in workers
             }
 
+    # Thread the bike/pedestrian reward weights through the agent config too, so
+    # reward functions that receive agt_config (or the mdp sub-config) directly
+    # can read them without relying on the environment variable.
+    agt_config['w_bike'] = args.w_bike
+    agt_config['w_ped'] = args.w_ped
+
     # === Environment Setup ===
     route = os.path.join(args.pwd, map_config['route']) if map_config.get('route') else None
     if args.map in {'grid4x4', 'arterial4x4'} and not os.path.exists(route):
         raise EnvironmentError("Please decompress the traffic flow files for the selected map.")
 
+    # Result folders for repeated runs get "_run<N>" appended so per-epoch values
+    # can later be averaged across runs. When run_idx is None (default, single
+    # run / --repeats 1) the run_name is unchanged from before.
+    run_suffix = f"_run{run_idx}" if run_idx is not None else ""
+    run_name = f"{agent_key}-tr{trial}{run_suffix}"
+
     env_class = BaseEnv if args.strategy == 1 else IncidentEnv
     env = env_class(
-        run_name=f"{agent_key}-tr{trial}",
+        run_name=run_name,
         map_name=args.map,
         net=os.path.join(args.pwd, map_config['net']),
         state_fn=agt_config['state'],
@@ -247,7 +316,8 @@ def run_trial(args, trial):
         if mm_logger:
             mm_logger.close()
         env.close()
-        print(f"Trial {trial} completed for {args.agent} on {args.map}.", flush=True)
+        run_label = f"{trial}{run_suffix}" if run_suffix else str(trial)
+        print(f"Trial {run_label} completed for {args.agent} on {args.map}.", flush=True)
 
 
 # === Helper Functions ===

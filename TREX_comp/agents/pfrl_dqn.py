@@ -129,8 +129,7 @@ class DQNAgent(Agent):
 
         self.model = model
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
-        #replay_buffer = replay_buffers.ReplayBuffer(10000)
-        replay_buffer = replay_buffers.ReplayBuffer(50000) # fixing MPLight instability
+        replay_buffer = replay_buffers.ReplayBuffer(50000)
         self.last_statistics = {}
 
         # expose for logging
