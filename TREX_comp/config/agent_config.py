@@ -83,6 +83,12 @@ agent_configs = {
         'reward': rewards.wait,
         'max_distance': 200
     },
+    'FIXEDTIME': {
+        'agent': FIXEDTIME,
+        'state': states.mplight,   # computed but unused by the agent
+        'reward': rewards.wait,    # same
+        'max_distance': 200
+    },
     'IDQN': {
         'agent': IDQN,
         'state': states.drq_norm,

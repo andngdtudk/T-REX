@@ -31,7 +31,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Run traffic signal control simulations with different agents.")
     
     parser.add_argument("--agent", type=str, default='MPLight',
-                        choices=['STOCHASTIC', 'MAXWAVE', 'MAXPRESSURE',
+                        choices=['STOCHASTIC', 'MAXWAVE', 'MAXPRESSURE', 'FIXEDTIME',
                                  'IDQN', "IDQN_MULTIMODAL", 'IDQN_DELTA', 'IDQN_DELTASCALE', 'IDQN_DELTASCLIP', 'IDQN_DELTAVAR',
                                  'IDQN_MM2',
                                  'IPPO', 'MPLight', 'MA2C', 'FMA2C', "MPLight_MM",
@@ -77,6 +77,13 @@ def parse_arguments():
         type=int,
         default=12,
         help="Maximum consecutive control decisions to keep the same green phase before forcing a switch.",
+    )
+    parser.add_argument(
+        "--fixed_phase_seconds",
+        type=float,
+        default=20,
+        help="Only used by --agent FIXEDTIME: seconds to hold each green phase for before "
+             "round-robin advancing to the next one. Ignored by every other agent.",
     )
 
     # --- New: repeated runs for averaging over stochasticity ---
@@ -259,7 +266,11 @@ def run_trial(args, trial, run_idx=None):
         'load_dir': load_dir,
         'num_lights': len(env.all_ts_ids),
         'save_freq': 50 if alg.__name__ in {'IPPO', 'FMA2C'} else 10,
-        'load': args.load
+        'load': args.load,
+        # Only consumed by FIXEDTIME (converts a seconds-based hold duration
+        # into a number of decision steps); harmless for every other agent.
+        'step_length': map_config['step_length'],
+        'fixed_phase_seconds': args.fixed_phase_seconds,
     })
 
     # Initialize multimodal logger for IDQN_MM2

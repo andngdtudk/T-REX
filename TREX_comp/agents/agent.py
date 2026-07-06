@@ -50,8 +50,6 @@ class IndependentAgent(Agent):
                 if info['eps'] % self.config['save_freq'] == 0:
                     save_path = _safe_model_path(self.config['log_dir'], agent_id)
                     self.agents[agent_id].save(save_path)
-                # if info['eps'] == 34:
-                #     self.agents[agent_id].save(self.config['log_dir']+'agent_'+agent_id)
 
 
 class SharedAgent(Agent):
