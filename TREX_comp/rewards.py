@@ -10,7 +10,7 @@ import traci
 
 #region Waits
 
-def wait(signals):
+def wait(signals, sim_time=None):
     """Local delay-minimization reward based on total waiting time.
 
     For each signal, this returns the negative sum of ``total_wait`` over its
