@@ -6,6 +6,7 @@ import TREX_comp.states as states
 from TREX_comp.agents.stochastic import STOCHASTIC
 from TREX_comp.agents.maxwave import MAXWAVE
 from TREX_comp.agents.maxpressure import MAXPRESSURE
+from TREX_comp.agents.fixedtime import FIXEDTIME
 from TREX_comp.agents.pfrl_dqn import IDQN
 from TREX_comp.agents.pfrl_ppo import IPPO
 from TREX_comp.agents.mplight import MPLight
