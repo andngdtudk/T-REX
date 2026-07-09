@@ -25,8 +25,9 @@ export TREX_DISABLE_JUPEDSIM=1
 
 
 en linux
-python3 main.py --agent IDQN_MM2 --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 | tee logs\idqn_mm2.log
+python3 main.py --agent IDQN_MM2 --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 --repeats 5 | tee logs\idqn_mm2.log
 python3 main.py --agent MPLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 | tee logs\mplight_mm.log
+python3 main.py --agent MPLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 --repeats 5 | tee logs\mplight_mm.log
 
 
 en win

@@ -265,7 +265,7 @@ def run_trial(args, trial, run_idx=None):
         'steps': train_steps,
         'log_dir': run_log_dir,
         'load_dir': load_dir,
-        'num_lights': len(env.all_ts_ids),
+        'num_lights': len(env.all_ts_ids),    
         'save_freq': 50 if alg.__name__ in {'IPPO', 'FMA2C'} else 10,
         'load': args.load,
         # Only consumed by FIXEDTIME (converts a seconds-based hold duration
