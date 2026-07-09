@@ -264,7 +264,7 @@ def run_trial(args, trial, run_idx=None):
         'steps': train_steps,
         'log_dir': run_log_dir,
         'load_dir': load_dir,
-        'num_lights': len(env.all_ts_ids),
+        'num_lights': len(env.all_ts_ids),    
         'save_freq': 50 if alg.__name__ in {'IPPO', 'FMA2C'} else 10,
         'load': args.load,
         # Only consumed by FIXEDTIME (converts a seconds-based hold duration
@@ -273,13 +273,11 @@ def run_trial(args, trial, run_idx=None):
         'fixed_phase_seconds': args.fixed_phase_seconds,
     })
 
-    # Initialize multimodal logger for IDQN_MM2
-    mm_logger = None
-    if agent_key == "IDQN_MM2":
-        mm_logger = MultimodalLogger(
-            log_dir=run_log_dir,
-            agent_name="IDQN_MM2",
-        )  
+    # Initialize multimodal logger
+    mm_logger = MultimodalLogger(
+        log_dir=run_log_dir,
+        agent_name=args.agent,
+    ) 
 
     obs_act = {
         key: [env.obs_shape[key], len(env.phases.get(key, []))]
