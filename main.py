@@ -197,7 +197,8 @@ def run_trial(args, trial, run_idx=None):
     # can later be averaged across runs. When run_idx is None (default, single
     # run / --repeats 1) the run_name is unchanged from before.
     run_suffix = f"_run{run_idx}" if run_idx is not None else ""
-    run_name = f"{agent_key}-tr{trial}{run_suffix}"
+    run_suffix2 = f"_wb{agt_config['w_bike']:.2f}_wp{agt_config['w_ped']:.2f}" if args.w_bike is not None or args.w_ped is not None else ""
+    run_name = f"{agent_key}-tr{trial}{run_suffix}{run_suffix2}"
 
     env_class = BaseEnv if args.strategy == 1 else IncidentEnv
     env = env_class(
@@ -277,7 +278,7 @@ def run_trial(args, trial, run_idx=None):
     mm_logger = MultimodalLogger(
         log_dir=run_log_dir,
         agent_name=args.agent,
-    ) 
+    )  
 
     obs_act = {
         key: [env.obs_shape[key], len(env.phases.get(key, []))]
