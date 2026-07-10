@@ -13,10 +13,17 @@ PLOTS_DIR = "plots"
 TRIPINFO_PATTERN = re.compile(r"^tripinfo_(\d+)\.xml$")
 PERSONINFO_PATTERN = re.compile(r"^personinfo_(\d+)\.xml$")
 
-# One fixed-name step-metrics CSV per run (not per-epoch like tripinfo/personinfo).
-# Expected columns include at least: episode, decision, car_queue, bike_queue.
-# There is no pedestrian queue column, so queue plots only cover car + bike.
-MM_STEP_METRICS_FILENAME = "mm_step_metrics.csv"
+# One fixed-name per-episode metrics CSV per run (not per-epoch/decision like
+# tripinfo/personinfo). Expected columns include at least: episode,
+# car_queue_total, bike_queue_total, ped_queue_total (queues), plus other
+# useful training-curve columns such as reward_mean, epsilon, mean_q,
+# mean_loss, car/bike/ped_wait_total, bike/ped_wait_frac (see
+# EPISODE_METRIC_SPECS below).
+# The per-episode metrics CSV may be prefixed with a model/run name, e.g.
+# "MPLight_MM_mm_episode_metrics.csv" or plain "mm_episode_metrics.csv".
+# Any filename ending in "mm_episode_metrics.csv" is accepted.
+EPISODE_METRICS_SUFFIX = "mm_episode_metrics.csv"
+EPISODE_METRICS_PATTERN = re.compile(r".*mm_episode_metrics\.csv$")
 
 # Expected directory layout:
 #   results/<test_name>/<run_name>/tripinfo_<epoch>.xml
@@ -247,15 +254,19 @@ def iter_personinfo_records(xml_path):
 
 
 # ---------------------------------------------------------------------------
-# Queue-length parsing (mm_step_metrics.csv, one fixed file per run)
+# Episode-level metrics parsing (mm_episode_metrics.csv, one fixed file per
+# run, one row per episode). This is the source for queue lengths and for
+# a handful of other useful training-curve metrics (reward, epsilon, mean_q,
+# mean_loss, wait totals/fractions).
 # ---------------------------------------------------------------------------
 
-def read_mm_step_metrics(csv_path):
-    """Read a run's mm_step_metrics.csv.
+def read_mm_episode_metrics(csv_path):
+    """Read a run's mm_episode_metrics.csv.
 
-    Returns a list of dicts: {"episode": int, "car_queue": float, "bike_queue": float}
-    (queue values are math.nan when missing/unparsable). Rows without a
-    usable episode number are skipped.
+    Returns a list of dicts: {"episode": int, <column>: float, ...} for every
+    other column in the file (math.nan when missing/unparsable). Rows
+    without a usable episode number are skipped. Column set is read
+    dynamically, so extra/missing columns across files are tolerated.
     """
     rows = []
     try:
@@ -266,58 +277,52 @@ def read_mm_step_metrics(csv_path):
                 if episode is None:
                     continue
 
-                car_queue = _safe_float(raw_row.get("car_queue"))
-                bike_queue = _safe_float(raw_row.get("bike_queue"))
-
-                rows.append({
-                    "episode": episode,
-                    "car_queue": car_queue if car_queue is not None else math.nan,
-                    "bike_queue": bike_queue if bike_queue is not None else math.nan,
-                })
+                parsed = {"episode": episode}
+                for key, raw_val in raw_row.items():
+                    if key == "episode":
+                        continue
+                    value = _safe_float(raw_val)
+                    parsed[key] = value if value is not None else math.nan
+                rows.append(parsed)
     except (OSError, csv.Error) as exc:
         print(f"Warning: failed to read {csv_path}: {exc}")
 
     return rows
 
 
-def compute_queue_averages_per_run(csv_rows):
-    """Average car/bike queue length across decisions within each episode.
+def find_run_file(run_path, pattern):
+    """Find a file directly inside run_path whose name matches `pattern`
+    (a compiled regex tested against the filename, e.g. allowing an
+    arbitrary model-name prefix before a fixed suffix).
 
-    csv_rows: list of {"episode", "car_queue", "bike_queue"} (one row per
-    decision step within an episode).
-    Returns: {episode: {"car": avg, "bike": avg, "combined": car_avg + bike_avg}}
+    Returns the full path to the first match (alphabetically), or None if
+    there's no match. Warns if more than one file matches, since only one
+    is used.
     """
-    by_episode = {}
-    for row in csv_rows:
-        bucket = by_episode.setdefault(row["episode"], {"car": [], "bike": []})
-        bucket["car"].append(row["car_queue"])
-        bucket["bike"].append(row["bike_queue"])
+    try:
+        candidates = sorted(
+            f for f in os.listdir(run_path)
+            if os.path.isfile(os.path.join(run_path, f)) and pattern.match(f)
+        )
+    except OSError:
+        return None
 
-    result = {}
-    for episode, vals in by_episode.items():
-        car_vals = [v for v in vals["car"] if not (isinstance(v, float) and math.isnan(v))]
-        bike_vals = [v for v in vals["bike"] if not (isinstance(v, float) and math.isnan(v))]
-
-        car_avg = sum(car_vals) / len(car_vals) if car_vals else math.nan
-        bike_avg = sum(bike_vals) / len(bike_vals) if bike_vals else math.nan
-
-        if math.isnan(car_avg) and math.isnan(bike_avg):
-            combined = math.nan
-        else:
-            combined = (0.0 if math.isnan(car_avg) else car_avg) + \
-                       (0.0 if math.isnan(bike_avg) else bike_avg)
-
-        result[episode] = {"car": car_avg, "bike": bike_avg, "combined": combined}
-
-    return result
+    if not candidates:
+        return None
+    if len(candidates) > 1:
+        print(f"Warning: multiple files matching {pattern.pattern!r} in {run_path}; using {candidates[0]}")
+    return os.path.join(run_path, candidates[0])
 
 
-def collect_queue_metrics(results_dir):
-    """Walk results_dir/<test>/<run>/mm_step_metrics.csv.
+def collect_episode_metrics(results_dir):
+    """Walk results_dir/<test>/<run>/ looking for a file matching
+    EPISODE_METRICS_PATTERN (e.g. "mm_episode_metrics.csv" or
+    "MPLight_MM_mm_episode_metrics.csv").
 
-    Returns: {test: {run: {episode: {"car": avg, "bike": avg, "combined": avg}}}}
-    Tests/runs without the CSV file (or with no usable rows) are simply
+    Returns: {test: {run: {episode: {column: value, ...}}}}
+    Tests/runs without a matching CSV (or with no usable rows) are simply
     omitted, so this feature degrades gracefully if some runs don't have it.
+    If a CSV has duplicate rows for the same episode, the last one wins.
     """
     tests = {}
 
@@ -336,15 +341,18 @@ def collect_queue_metrics(results_dir):
             if not os.path.isdir(run_path):
                 continue
 
-            csv_path = os.path.join(run_path, MM_STEP_METRICS_FILENAME)
-            if not os.path.isfile(csv_path):
+            csv_path = find_run_file(run_path, EPISODE_METRICS_PATTERN)
+            if csv_path is None:
                 continue
 
-            csv_rows = read_mm_step_metrics(csv_path)
+            csv_rows = read_mm_episode_metrics(csv_path)
             if not csv_rows:
                 continue
 
-            runs[run_entry] = compute_queue_averages_per_run(csv_rows)
+            by_episode = {}
+            for row in csv_rows:
+                by_episode[row["episode"]] = row
+            runs[run_entry] = by_episode
 
         if runs:
             tests[test_entry] = runs
@@ -352,19 +360,80 @@ def collect_queue_metrics(results_dir):
     return tests
 
 
+def compute_queue_metrics_from_episode(per_run_episode_metrics):
+    """Pull car/bike/ped queue totals (+ combined) out of parsed
+    mm_episode_metrics.csv rows. Each row is already one total per episode,
+    so no within-episode averaging is needed (unlike the old per-decision
+    mm_step_metrics.csv source).
+
+    per_run_episode_metrics: {test: {run: {episode: {column: value}}}}
+    Returns: {test: {run: {episode: {"car", "bike", "ped", "combined"}}}}
+    """
+    result = {}
+    for test, runs in per_run_episode_metrics.items():
+        result[test] = {}
+        for run, episodes in runs.items():
+            per_episode = {}
+            for episode, row in episodes.items():
+                car_q = row.get("car_queue_total", math.nan)
+                bike_q = row.get("bike_queue_total", math.nan)
+                ped_q = row.get("ped_queue_total", math.nan)
+
+                if math.isnan(car_q) and math.isnan(bike_q) and math.isnan(ped_q):
+                    combined = math.nan
+                else:
+                    combined = (0.0 if math.isnan(car_q) else car_q) + \
+                               (0.0 if math.isnan(bike_q) else bike_q) + \
+                               (0.0 if math.isnan(ped_q) else ped_q)
+
+                per_episode[episode] = {"car": car_q, "bike": bike_q, "ped": ped_q, "combined": combined}
+            result[test][run] = per_episode
+    return result
+
+
 def aggregate_queue_metrics(per_run_queue_metrics):
-    """{test: {run: {episode: {"car"/"bike"/"combined": value}}}}
-    -> {test: {"car"/"bike"/"combined": {episode: (mean, err, n)}}}
+    """{test: {run: {episode: {"car"/"bike"/"ped"/"combined": value}}}}
+    -> {test: {"car"/"bike"/"ped"/"combined": {episode: (mean, err, n)}}}
     """
     result = {}
     for test, runs in per_run_queue_metrics.items():
         result[test] = {}
-        for key in ("car", "bike", "combined"):
+        for key in ("car", "bike", "ped", "combined"):
             per_run_scalar = {
                 run: {episode: vals[key] for episode, vals in episodes.items()}
                 for run, episodes in runs.items()
             }
             result[test][key] = aggregate_scalar_series(per_run_scalar)
+    return result
+
+
+# Other episode-level metrics worth plotting directly from
+# mm_episode_metrics.csv, as (column_name, output_filename_stub, ylabel, title).
+# Any spec whose column is absent/all-NaN across every test is skipped
+# automatically, so it's safe to list columns that not every run will have.
+EPISODE_METRIC_SPECS = (
+    ("reward_mean", "reward_mean", "Mean reward", "Mean reward per episode"),
+    ("mean_q", "mean_q", "Mean Q-value", "Mean Q-value per episode"),
+    ("mean_loss", "mean_loss", "Mean training loss", "Mean training loss per episode"),
+    ("epsilon", "epsilon", "Epsilon", "Exploration epsilon per episode"),
+    ("bike_wait_frac", "wait_frac_bike", "Bike wait fraction", "Share of total wait time from bikes per episode"),
+    ("ped_wait_frac", "wait_frac_ped", "Pedestrian wait fraction", "Share of total wait time from pedestrians per episode"),
+    ("car_wait_total", "wait_total_car", "Total wait (car)", "Total car waiting time per episode"),
+    ("bike_wait_total", "wait_total_bike", "Total wait (bike)", "Total bike waiting time per episode"),
+    ("ped_wait_total", "wait_total_ped", "Total wait (ped)", "Total pedestrian waiting time per episode"),
+)
+
+
+def aggregate_episode_metric_column(per_run_episode_metrics, column):
+    """{test: {run: {episode: {column: value, ...}}}} -> {test: {episode: (mean, err, n)}}
+    for a single column."""
+    result = {}
+    for test, runs in per_run_episode_metrics.items():
+        per_run_scalar = {
+            run: {episode: row.get(column, math.nan) for episode, row in episodes.items()}
+            for run, episodes in runs.items()
+        }
+        result[test] = aggregate_scalar_series(per_run_scalar)
     return result
 
 
@@ -816,27 +885,39 @@ def plot_never_arrived(aggregated_never_arrived, plots_dir):
         )
 
 
-def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
-    """Combined (car+bike) queue length, plus one figure per mode.
+def _has_real_data(epoch_stats):
+    """True if at least one epoch has a non-NaN mean in this {epoch: (mean, err, n)} dict."""
+    return any(
+        not (isinstance(mean, float) and math.isnan(mean))
+        for mean, _err, _n in epoch_stats.values()
+    )
 
-    No pedestrian queue column exists in mm_step_metrics.csv, so this only
-    covers car and bike.
+
+def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
+    """Combined (car+bike+ped) queue length, plus one figure per mode.
+
+    A queue key (e.g. "ped") is skipped if no test has any real data for it
+    (e.g. the source CSV has no ped_queue_total column at all).
     """
     os.makedirs(plots_dir, exist_ok=True)
 
-    # --- combined queue (car + bike) ---
-    _new_figure()
-    for test, per_key in aggregated_queue_metrics.items():
-        _plot_series_with_band(per_key["combined"], test)
+    # --- combined queue (car + bike + ped) ---
+    if any(_has_real_data(per_key["combined"]) for per_key in aggregated_queue_metrics.values()):
+        _new_figure()
+        for test, per_key in aggregated_queue_metrics.items():
+            _plot_series_with_band(per_key["combined"], test)
 
-    _finish_plot(
-        "Epoch", "Queue length",
-        f"Combined queue length per epoch (car+bike), mean +/- {ERROR_BAND_KIND} across runs",
-        os.path.join(plots_dir, "queue_combined.png"),
-    )
+        _finish_plot(
+            "Epoch", "Queue length",
+            f"Combined queue length per epoch (car+bike+ped), mean +/- {ERROR_BAND_KIND} across runs",
+            os.path.join(plots_dir, "queue_combined.png"),
+        )
 
     # --- per-mode queue length ---
-    for mode_key in ("car", "bike"):
+    for mode_key in ("car", "bike", "ped"):
+        if not any(_has_real_data(per_key[mode_key]) for per_key in aggregated_queue_metrics.values()):
+            continue
+
         _new_figure()
         for test, per_key in aggregated_queue_metrics.items():
             _plot_series_with_band(per_key[mode_key], test)
@@ -845,6 +926,31 @@ def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
             "Epoch", "Queue length",
             f"Queue length per epoch, mean +/- {ERROR_BAND_KIND} across runs ({mode_key})",
             os.path.join(plots_dir, f"queue_{mode_key}.png"),
+        )
+
+
+def plot_episode_metric_columns(episode_metrics, specs, plots_dir):
+    """One figure per spec in EPISODE_METRIC_SPECS, mean +/- band across runs.
+
+    Specs whose column is missing/all-NaN across every test are skipped
+    silently (so it's safe to list columns some runs won't have).
+    """
+    os.makedirs(plots_dir, exist_ok=True)
+
+    for column, filename_stub, ylabel, title in specs:
+        aggregated = aggregate_episode_metric_column(episode_metrics, column)
+
+        if not any(_has_real_data(per_epoch) for per_epoch in aggregated.values()):
+            continue
+
+        _new_figure()
+        for test, per_epoch in aggregated.items():
+            _plot_series_with_band(per_epoch, test)
+
+        _finish_plot(
+            "Episode", ylabel,
+            f"{title}, mean +/- {ERROR_BAND_KIND} across runs",
+            os.path.join(plots_dir, f"episode_{filename_stub}.png"),
         )
 
 
@@ -921,11 +1027,11 @@ def main():
 
     raw_records = collect_raw_records(results_dir)
     never_arrived = collect_never_arrived(results_dir)
-    queue_metrics = collect_queue_metrics(results_dir)
+    episode_metrics = collect_episode_metrics(results_dir)
 
-    if not raw_records and not never_arrived and not queue_metrics:
+    if not raw_records and not never_arrived and not episode_metrics:
         print(
-            f"No tripinfo/personinfo/{MM_STEP_METRICS_FILENAME} files found "
+            f"No tripinfo/personinfo/*{EPISODE_METRICS_SUFFIX} files found "
             f"under {results_dir}/<test>/<run>/."
         )
         return
@@ -947,17 +1053,20 @@ def main():
         aggregated_never_arrived = aggregate_never_arrived(never_arrived)
         plot_never_arrived(aggregated_never_arrived, plots_dir)
 
-    if queue_metrics:
+    if episode_metrics:
+        queue_metrics = compute_queue_metrics_from_episode(episode_metrics)
         aggregated_queue_metrics = aggregate_queue_metrics(queue_metrics)
         plot_queue_metrics(aggregated_queue_metrics, plots_dir)
+
+        plot_episode_metric_columns(episode_metrics, EPISODE_METRIC_SPECS, plots_dir)
 
     if raw_records:
         run_counts = ", ".join(f"{test}={len(runs)} runs" for test, runs in raw_records.items())
         print(f"Runs found (tripinfo/personinfo): {run_counts}")
 
-    if queue_metrics:
-        queue_run_counts = ", ".join(f"{test}={len(runs)} runs" for test, runs in queue_metrics.items())
-        print(f"Runs found ({MM_STEP_METRICS_FILENAME}): {queue_run_counts}")
+    if episode_metrics:
+        episode_run_counts = ", ".join(f"{test}={len(runs)} runs" for test, runs in episode_metrics.items())
+        print(f"Runs found (*{EPISODE_METRICS_SUFFIX}): {episode_run_counts}")
 
     print(f"Plots saved to {plots_dir}.")
 
