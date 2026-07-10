@@ -86,7 +86,7 @@ agent_configs = {
     },
     'FIXEDTIME': {
         'agent': FIXEDTIME,
-        'state': states.mplight,   # computed but unused by the agent
+        'state': states.drq_multimodal_norm,   # computed but unused by the agent
         'reward': rewards.wait,    # same
         'max_distance': 200
     },

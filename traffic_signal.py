@@ -271,6 +271,7 @@ class Signal:
         # here (see _collect_ped_crossing_pressure's docstring for why
         # those were replaced).
         self.ped_crossing_pressure = {}   # GLOBAL pair_idx -> float, set each observe()
+        self.ped_crossing_pressure_waiting = {}  # same, with currently-served phase zeroed
 
         self.signals = None     # Used to allow signal sharing
         self.full_observation = None
@@ -683,6 +684,16 @@ class Signal:
         edge conversion, ring-topology, or sub-step-polling machinery
         from the earlier attempts is needed anymore.
 
+        IMPORTANT SEMANTICS: for a given phase index, this returns "how
+        many people WOULD be served if this phase were active" -- it is a
+        demand/pressure query, evaluated for every phase regardless of
+        whether that phase is the one currently showing green. It is NOT
+        automatically a "how many people are waiting right now" count.
+        The currently-active phase's entry, in particular, reflects
+        people who ARE being served (crossing right now), not people who
+        are waiting. See _collect_unserved_ped_pressure() below for a
+        variant that removes that one entry.
+
         Returns dict[pair_idx -> float], where pair_idx is the GLOBAL
         phase_pairs index (matching mplight_mm's state/reward functions),
         not a SUMO phase index — converted via signal_configs[map]
@@ -716,6 +727,60 @@ class Signal:
 
         self.ped_crossing_pressure = pressure
         return pressure
+
+    def _collect_unserved_ped_pressure(self, pressure):
+        """Return a copy of `pressure` (pair_idx -> float, as produced by
+        _collect_ped_crossing_pressure) with the entry for the CURRENTLY
+        ACTIVE phase zeroed out -- i.e. pedestrians who would be served by
+        the phase that's green *right now* are not counted as "waiting",
+        since they're actively being let through.
+
+        Uses self.phase (SUMO's live local phase index for this TLS,
+        queried fresh via traci) and this signal's valid_acts entry
+        (pair_idx -> local_phase_idx, the same lookup
+        _collect_ped_crossing_pressure uses) to find which pair_idx, if
+        any, corresponds to the phase currently showing green.
+
+        If the signal is currently mid-transition (a yellow phase
+        appended by create_yellows, whose index falls outside valid_acts'
+        set of local_phase_idx values -- yellow phases are appended AFTER
+        the green ones and are never entered into valid_acts), no entry
+        is excluded: nothing is confidently "being served" during a
+        yellow interval, so no assumption is made either way and the
+        input pressure dict is returned unchanged (as a copy).
+
+        KNOWN REMAINING LIMITATION: this only removes the entry for the
+        one currently-active phase. It does NOT deduplicate pedestrians
+        across DIFFERENT, still-unserved phase-pairs that happen to share
+        the same physical crossing/pedestrian group. getServedPersonCount
+        is queried independently per phase, so if two phase-pairs both
+        include a movement that serves the same crossing, the same
+        waiting pedestrians can appear in both of their pressure values --
+        summing across pair_idx can then overcount actual distinct people.
+        This is unlike bike_queue/car_queue, where each vehicle is
+        attributed to exactly one lane. If you need an exact deduplicated
+        headcount, this dict is not sufficient on its own.
+        """
+        myconfig = signal_configs.get(self.map_name, {})
+        valid_acts = myconfig.get('valid_acts', {}).get(self.id, {})
+
+        current_local_phase = self.phase
+        served_pair_idx = None
+        for pair_idx, local_phase_idx in valid_acts.items():
+            if local_phase_idx == current_local_phase:
+                served_pair_idx = pair_idx
+                break
+
+        if served_pair_idx is None:
+            # Currently in a yellow/transition phase (or valid_acts is
+            # empty) -- nothing recognizable as "currently served" to
+            # exclude, so leave every entry as-is.
+            return dict(pressure)
+
+        return {
+            pair_idx: (0.0 if pair_idx == served_pair_idx else val)
+            for pair_idx, val in pressure.items()
+        }
 
     def generate_config(self):
         print('GENERATING CONFIG')
@@ -962,6 +1027,15 @@ class Signal:
         # Collect pedestrian measures now, as these are not lane based
         full_observation.update(self._collect_pedestrian_measures(controlled_edges))
         full_observation['ped_crossing_pressure'] = self._collect_ped_crossing_pressure()
+
+        # "Waiting" variant: same per-pair pressure, but with the entry for
+        # whichever phase is currently green zeroed out (see
+        # _collect_unserved_ped_pressure's docstring for exact semantics
+        # and its one remaining caveat around cross-pair double counting).
+        self.ped_crossing_pressure_waiting = self._collect_unserved_ped_pressure(
+            full_observation['ped_crossing_pressure']
+        )
+        full_observation['ped_crossing_pressure_waiting'] = self.ped_crossing_pressure_waiting
 
 
         full_observation['num_vehicles'] = all_vehicles
