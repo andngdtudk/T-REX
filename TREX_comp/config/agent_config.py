@@ -99,7 +99,7 @@ agent_configs = {
         'GAMMA': 0.99,
         'EPS_START': 1.0,
         'EPS_END': 0.0,
-        'EPS_DECAY': 220,
+        'EPS_DECAY': 43200,
         'TARGET_UPDATE': 500
     },
 
@@ -197,7 +197,7 @@ agent_configs = {
         'GAMMA': 0.99,
         'EPS_START': 1.0,
         'EPS_END': 0.0,
-        'EPS_DECAY': 220,
+        'EPS_DECAY': 54000,
         'TARGET_UPDATE': 500,
         'demand_shape': 1
     },
