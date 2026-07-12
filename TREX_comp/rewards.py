@@ -450,7 +450,7 @@ def wait_multimodal_norm(signals):
 #============================================================================================
 #region Pressure and queue
 
-def pressure(signals):
+def pressure(signals, sim_time=None):
     """Traffic-pressure reward using upstream minus downstream queue.
 
     Computes queue pressure per signal as:

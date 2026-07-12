@@ -30,7 +30,7 @@ python3 main.py --agent MPLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy
 python3 main.py --agent MPLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 --repeats 5 | tee logs\mplight_mm.log
 python3 main.py --agent IPPO --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 --repeats 5 | tee logs\ippo.log
 python main.py --agent IDQN_MM2 --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --w_bike 100000.0 --w_ped 0.0 --max_green_hold 12 | Tee-Object -FilePath logs/idqn_mm2.log
-python3 main.py --agent MPLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 --repeats 5 | tee logs\mplight_mm.log
+python3 main.py --agent MAXPRESSURE --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --max_green_hold 12 --repeats 5 | tee logs\maxpress.log
 python main.py --agent IDQN_MM2 --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 --w_bike 100000.0 --w_ped 0.0 --max_green_hold 12 | Tee-Object -FilePath logs/idqn_mm2.log
 
 
