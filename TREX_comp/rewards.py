@@ -29,7 +29,7 @@ def wait(signals, sim_time=None):
     return rewards
 
 
-def wait_norm(signals):
+def wait_norm(signals, sim_time=None):
     """Normalized and clipped variant of :func:`wait`.
 
     Uses the same ``-total_wait`` objective, but scales by 224 and clips to
@@ -106,7 +106,7 @@ def _get_delta_wait_config(config_key, require_clip=False):
     }
     return cfg
 
-def wait_delta_norm(signals):
+def wait_delta_norm(signals, sim_time):
     """Stateful wrapper for :func:`wait_delta` with reset-safe bookkeeping.
 
     Keeps previous waits across steps and resets automatically if the set of
@@ -649,7 +649,7 @@ def _resolve_fma_config(config_key, signals):
     mdp_configs[config_key] = resolved
     return resolved
 
-def fma2c(signals):
+def fma2c(signals, sim_time=None):
     """Hierarchical FMA2C reward for workers and managers.
 
     Produces a joint reward dictionary that includes:
@@ -728,7 +728,7 @@ def fma2c(signals):
     return neighborhood_rewards
 
 
-def fma2c_full(signals):
+def fma2c_full(signals, sim_time=None):
     """Full hierarchical reward variant for FMA2CFull experiments.
 
     Same reward structure as :func:`fma2c` (worker + manager terms), but with
