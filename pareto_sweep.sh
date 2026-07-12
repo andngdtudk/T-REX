@@ -26,7 +26,7 @@ for bike in "${BIKE_WEIGHTS[@]}"; do
     echo "=== [$run_num/$total_runs] Starting w_bike=${bike} w_ped=${ped} at $(date) ==="
 
     timeout "${MAX_RUN_SECONDS}" python main.py \
-      --agent MLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 \
+      --agent MPLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 \
       --w_bike "${bike}" --w_ped "${ped}" --max_green_hold 12 \
       > "${log_file}" 2>&1
     exit_code=$?
