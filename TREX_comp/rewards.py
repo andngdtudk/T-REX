@@ -106,7 +106,7 @@ def _get_delta_wait_config(config_key, require_clip=False):
     }
     return cfg
 
-def wait_delta_norm(signals):
+def wait_delta_norm(signals, sim_time):
     """Stateful wrapper for :func:`wait_delta` with reset-safe bookkeeping.
 
     Keeps previous waits across steps and resets automatically if the set of

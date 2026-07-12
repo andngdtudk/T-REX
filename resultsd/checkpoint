@@ -1,0 +1,2 @@
+model_checkpoint_path: "/home/s243292/pmt/T-REX/results/FMA2CVAL-tr0_run5-kbh_j1_442m-0-fma2c-fma2cagent_checkpoint-100"
+all_model_checkpoint_paths: "/home/s243292/pmt/T-REX/results/FMA2CVAL-tr0_run5-kbh_j1_442m-0-fma2c-fma2cagent_checkpoint-100"
