@@ -6,6 +6,9 @@ import statistics
 import xml.etree.ElementTree as ET
 
 import matplotlib.pyplot as plt
+import scienceplots
+
+plt.style.use('science')
 
 
 RESULTS_DIR = "results"
@@ -848,10 +851,25 @@ def plot_combined_metrics(aggregated_combined_averages, plots_dir):
         _new_figure()
         for test, per_metric in aggregated_combined_averages.items():
             _plot_series_with_band(per_metric[metric], test)
-
+            
+        if metric == "duration":
+            metric_axis = "Duration (s)"
+            metric_label = "duration"
+        elif metric == "waitingTime":
+            metric_axis = "Waiting time (s)"
+            metric_label = "waiting time"
+        elif metric == "timeLoss":
+            metric_axis = "Time loss (s)"
+            metric_label     = "time loss"
+        elif metric == "never_arrived":
+            metric_axis = "Never arrived (count)"
+            metric_label = "never arrived entities"
+        else:
+            metric_axis = metric
+            metric_label = metric
         _finish_plot(
-            "Epoch", metric,
-            f"Average {metric} per epoch (mean +/- {ERROR_BAND_KIND} across runs; cars+bikes+pedestrians combined)",
+            "Epoch", metric_axis,
+            f"Average combined {metric_label} per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs",
             os.path.join(plots_dir, f"{metric}.png"),
         )
 
@@ -865,7 +883,7 @@ def plot_combined_throughput(aggregated_throughput, plots_dir):
 
     _finish_plot(
         "Epoch", "Throughput (entities/hour)",
-        f"Combined throughput per epoch (mean +/- {ERROR_BAND_KIND} across runs; cars+bikes+pedestrians)",
+        f"Combined throughput per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs",
         os.path.join(plots_dir, "throughput_combined.png"),
     )
 
@@ -878,9 +896,16 @@ def plot_never_arrived(aggregated_never_arrived, plots_dir):
         for test, per_mode in aggregated_never_arrived.items():
             _plot_series_with_band(per_mode[mode], test)
 
+        if mode == MODE_PED or mode == "ped":
+            mode_label = "pedestrians"
+        elif mode == MODE_BIKE or mode == "bike":
+            mode_label = "cyclists"
+        else:
+            mode_label = "cars"
+
         _finish_plot(
-            "Epoch", "never_arrived",
-            f"Never arrived (arrival=-1) per epoch, mean +/- {ERROR_BAND_KIND} across runs ({mode})",
+            "Epoch", "Never arrived (entities)",
+            f"Never arrived per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
             os.path.join(plots_dir, f"never_arrived_{mode}.png"),
         )
 
@@ -909,7 +934,7 @@ def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
 
         _finish_plot(
             "Epoch", "Queue length",
-            f"Combined queue length per epoch (car+bike+ped), mean +/- {ERROR_BAND_KIND} across runs",
+            f"Combined queue$^*$ length per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs",
             os.path.join(plots_dir, "queue_combined.png"),
         )
 
@@ -922,11 +947,23 @@ def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
         for test, per_key in aggregated_queue_metrics.items():
             _plot_series_with_band(per_key[mode_key], test)
 
-        _finish_plot(
+        if mode_key == "ped":
+            mode_label = "pedestrians"
+            _finish_plot(
             "Epoch", "Queue length",
-            f"Queue length per epoch, mean +/- {ERROR_BAND_KIND} across runs ({mode_key})",
+            f"Queue$^*$ length per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
             os.path.join(plots_dir, f"queue_{mode_key}.png"),
         )
+        else:
+            if mode_key == "bike":
+                mode_label = "cyclists"
+            else:
+                mode_label = "cars"
+            _finish_plot(
+                "Epoch", "Queue length",
+                f"Queue length per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
+                os.path.join(plots_dir, f"queue_{mode_key}.png"),
+            )
 
 
 def plot_episode_metric_columns(episode_metrics, specs, plots_dir):
@@ -949,7 +986,7 @@ def plot_episode_metric_columns(episode_metrics, specs, plots_dir):
 
         _finish_plot(
             "Episode", ylabel,
-            f"{title}, mean +/- {ERROR_BAND_KIND} across runs",
+            f"{title}, mean $+/-$ {ERROR_BAND_KIND} across runs",
             os.path.join(plots_dir, f"episode_{filename_stub}.png"),
         )
 
@@ -965,9 +1002,16 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
         for test, per_mode in aggregated_wait_stats.items():
             _plot_series_with_band(per_mode[mode]["total_smoothed"], test)
 
+        if mode == MODE_PED or mode == "ped":
+            mode_label = "pedestrians"
+        elif mode == MODE_BIKE or mode == "bike":
+            mode_label = "cyclists"
+        else:
+            mode_label = "cars"
+
         _finish_plot(
-            "Epoch", "Total waitingTime (rolling avg)",
-            f"Total wait per epoch, {ROLLING_WINDOW}-epoch rolling average, mean +/- {ERROR_BAND_KIND} across runs ({mode})",
+            "Epoch", "Total waiting time (s)",
+            f"Total wait per epoch, {ROLLING_WINDOW}-epoch rolling average, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
             os.path.join(plots_dir, f"wait_total_smoothed_{mode}.png"),
         )
 
@@ -977,8 +1021,8 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
             _plot_series_with_band(per_mode[mode]["average"], test)
 
         _finish_plot(
-            "Epoch", "Average waitingTime",
-            f"Average wait per epoch, mean +/- {ERROR_BAND_KIND} across runs ({mode})",
+            "Epoch", "Average waiting time (s)",
+            f"Average wait per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
             os.path.join(plots_dir, f"wait_average_{mode}.png"),
         )
 
@@ -988,8 +1032,8 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
             _plot_series_with_band(per_mode[mode]["p90"], test)
 
         _finish_plot(
-            "Epoch", "90th-percentile waitingTime",
-            f"90th-percentile wait per epoch, mean +/- {ERROR_BAND_KIND} across runs ({mode})",
+            "Epoch", "90th-percentile waiting time (s)",
+            f"90th-percentile wait per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
             os.path.join(plots_dir, f"wait_p90_{mode}.png"),
         )
 
@@ -999,8 +1043,8 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
             _plot_series_with_band(per_mode[mode]["variance"], test)
 
         _finish_plot(
-            "Epoch", "Variance of waitingTime within epoch",
-            f"Wait stability per epoch, mean +/- {ERROR_BAND_KIND} across runs ({mode})",
+            "Epoch", "Variance of waiting time within epoch",
+            f"Wait stability per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
             os.path.join(plots_dir, f"wait_stability_{mode}.png"),
         )
 
@@ -1011,7 +1055,7 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         _finish_plot(
             "Epoch", "Throughput (entities/hour)",
-            f"Throughput per epoch, mean +/- {ERROR_BAND_KIND} across runs ({mode})",
+            f"Throughput per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
             os.path.join(plots_dir, f"throughput_{mode}.png"),
         )
 
