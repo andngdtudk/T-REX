@@ -10,10 +10,10 @@
                xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
 
     <input>
-        <net-file value="kbh_red_3.0.0.net.xml"/>
+        <net-file value="kbh_c1_4.5.1.net.xml"/>
         <additional-files value="vtypes.xml"/>
         <!-- Add the route files you generated. Comment out modes you don't need. -->
-        <route-files value="routes_car.rou.xml"/>
+        <route-files value="routes_car.rou.xml,routes_bike.rou.xml,routes_ped.rou.xml"/>
     </input>
 
     <time>
@@ -29,6 +29,7 @@
         <time-to-teleport value="300"/>
         <pedestrian.model value="striping"/>
         <pedestrian.striping.stripe-width value="0.55"/>
+        <ignore-junction-blocker value="10"/>
     </processing>
 
     <routing>
