@@ -1,7 +1,7 @@
 from TREX_comp.agents.agent import IndependentAgent, Agent
 
 
-DEFAULT_HOLD_SECONDS = 40
+DEFAULT_HOLD_SECONDS = 20
 
 
 class FIXEDTIME(IndependentAgent):

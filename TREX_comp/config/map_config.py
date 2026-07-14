@@ -277,6 +277,17 @@ map_configs = {
         'start_time': 0,
         'end_time': 5400,
         'warmup': 0
+    },
+    'kbh_c2_454m': {
+        'lights': ["J10", "J11", "J12", "J13", "cluster3106249630_3106249631_J60_J61_#5more"],
+        'net': 'environments/kbh_c2_454m/kbh_c2_4.5.4.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 5400,
+        'warmup': 0
     }
 
 }
