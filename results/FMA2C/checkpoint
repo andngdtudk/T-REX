@@ -1,0 +1,2 @@
+model_checkpoint_path: "C:\\Users\\cl415\\Desktop\\IC(CCP)\\tfm\\T-Rex\\results\\FMA2C-tr0_run5-kbh_j1_442m-0-fma2c-fma2cagent_checkpoint-100"
+all_model_checkpoint_paths: "C:\\Users\\cl415\\Desktop\\IC(CCP)\\tfm\\T-Rex\\results\\FMA2C-tr0_run5-kbh_j1_442m-0-fma2c-fma2cagent_checkpoint-100"

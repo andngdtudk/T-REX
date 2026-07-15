@@ -813,7 +813,9 @@ def _finish_plot(xlabel, ylabel, title, output_path):
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
-    plt.legend()
+    plt.legend(
+        ncol=2,
+    )
     plt.grid(True, linestyle="--", alpha=0.4)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
@@ -827,7 +829,7 @@ def _plot_series_with_band(epoch_stats, label):
     means = [epoch_stats[x][0] for x in xs]
     errs = [epoch_stats[x][1] for x in xs]
 
-    line, = plt.plot(xs, means, marker="o", linewidth=1.5, label=label)
+    line, = plt.plot(xs, means, marker="", linewidth=1.5, label=label)
     color = line.get_color()
 
     lo, hi = [], []

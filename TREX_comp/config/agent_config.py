@@ -96,7 +96,7 @@ agent_configs = {
         'reward': rewards.wait_norm,
         'max_distance': 200,
         'BATCH_SIZE': 32,
-        'GAMMA': 0.99,
+        'GAMMA': 0.95, # was .99, changed to stabilize
         'EPS_START': 1.0,
         'EPS_END': 0.0,
         'EPS_DECAY': 43200,
@@ -196,7 +196,7 @@ agent_configs = {
         'BATCH_SIZE': 32,
         'GAMMA': 0.99,
         'EPS_START': 1.0,
-        'EPS_END': 0.0,
+        'EPS_END': 0.05,
         'EPS_DECAY': 54000,
         'TARGET_UPDATE': 500,
         'demand_shape': 1
