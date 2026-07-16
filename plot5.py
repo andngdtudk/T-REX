@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 import scienceplots
 
-plt.style.use('science')
+plt.style.use(["science", "muted"])
 
 
 RESULTS_DIR = "results"
