@@ -6,9 +6,9 @@ import statistics
 import xml.etree.ElementTree as ET
 
 import matplotlib.pyplot as plt
-import scienceplots
+#import scienceplots
 
-plt.style.use(["science", "muted"])
+#plt.style.use(["science", "muted"])
 
 
 RESULTS_DIR = "results"
