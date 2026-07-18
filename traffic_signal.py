@@ -1025,17 +1025,19 @@ class Signal:
             full_observation[lane] = lane_measures
         
         # Collect pedestrian measures now, as these are not lane based
+        # DEBUG: comment out collect_ped_crossing_pressure to see if it is causing the error
         full_observation.update(self._collect_pedestrian_measures(controlled_edges))
-        full_observation['ped_crossing_pressure'] = self._collect_ped_crossing_pressure()
+        #full_observation['ped_crossing_pressure'] = self._collect_ped_crossing_pressure()
 
         # "Waiting" variant: same per-pair pressure, but with the entry for
         # whichever phase is currently green zeroed out (see
         # _collect_unserved_ped_pressure's docstring for exact semantics
         # and its one remaining caveat around cross-pair double counting).
-        self.ped_crossing_pressure_waiting = self._collect_unserved_ped_pressure(
-            full_observation['ped_crossing_pressure']
-        )
-        full_observation['ped_crossing_pressure_waiting'] = self.ped_crossing_pressure_waiting
+        
+        # self.ped_crossing_pressure_waiting = self._collect_unserved_ped_pressure(
+        #     full_observation['ped_crossing_pressure']
+        # )
+        # full_observation['ped_crossing_pressure_waiting'] = self.ped_crossing_pressure_waiting
 
 
         full_observation['num_vehicles'] = all_vehicles

@@ -7,8 +7,8 @@
 
 set -uo pipefail   # NOTE: no -e, so one crashed/timed-out run doesn't abort the whole sweep
 
-BIKE_WEIGHTS=(0.4 0.8 1.2 1.6)
-PED_WEIGHTS=(60 120 200 300)
+BIKE_WEIGHTS=(1.2 1.8 2.4 3.0)
+PED_WEIGHTS=(1.5 2.5 3.5 4.5)
 
 MAX_RUN_SECONDS=$((90 * 60))   # 1h30m safety cap per run (1:15 + 15min buffer)
 
@@ -21,12 +21,12 @@ total_runs=$(( ${#BIKE_WEIGHTS[@]} * ${#PED_WEIGHTS[@]} ))
 for bike in "${BIKE_WEIGHTS[@]}"; do
   for ped in "${PED_WEIGHTS[@]}"; do
     run_num=$((run_num + 1))
-    log_file="logs/idqn_mm2_bike${bike}_ped${ped}.log"
+    log_file="logs/mlight_mm_bike${bike}_ped${ped}.log"
 
     echo "=== [$run_num/$total_runs] Starting w_bike=${bike} w_ped=${ped} at $(date) ==="
 
     timeout "${MAX_RUN_SECONDS}" python main.py \
-      --agent IDQN_MM2 --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 \
+      --agent MPLight_MM --map kbh_j1_442m --eps 100 --tr 0 --strategy 1 \
       --w_bike "${bike}" --w_ped "${ped}" --max_green_hold 12 \
       > "${log_file}" 2>&1
     exit_code=$?
