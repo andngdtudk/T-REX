@@ -1517,6 +1517,7 @@ signal_configs = {
     #'valid_acts': {'J01': {0: 0, 1: 1, 2: 2, 3: 3}},
     #num_movements': 11,   # must equal len(signal.movement_index_map) for every signal sharing the model
 	'ped_detect_distance': 15.0
-},
-
+	},
+	
+	'kbh_c2_454m': {'ped_detect_distance': 15.0,},
 }                                                                                                                                                                                                                                                        

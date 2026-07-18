@@ -177,7 +177,7 @@ agent_configs = {
         'GAMMA': 0.95, # was 0.99, changed to stabilize
         'EPS_START': 1.0,
         'EPS_END': 0.05, # was 0.0, avoid fully greedy
-        'EPS_DECAY': 43200, # 80 % of steps
+        'EPS_DECAY': 54000, # 80 % of steps for 100 is 43200, for 150 steps is 54000
         'TARGET_UPDATE': 50, # was 500, changed to handle fast Q growth
         "MAX_GRAD_NORM": 1.0, # added to handle fast Q growth
     },

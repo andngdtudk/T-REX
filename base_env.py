@@ -188,6 +188,7 @@ class BaseEnv(gym.Env):
             self.signal_ids.append(self.all_ts_ids[i])
 
         for ts in self.signal_ids:
+            print(f"[DEBUG] about to construct Signal {ts}", flush=True)
             self.signals[ts] = Signal(
                 self.map_name,
                 self.sumo,
@@ -196,6 +197,7 @@ class BaseEnv(gym.Env):
                 self.phases[ts],
                 max_green_hold_steps=self.max_green_hold_steps,
             )
+            print(f"[DEBUG] constructed Signal {ts}", flush=True)
             self.wait_metric[ts] = 0.0
         for ts in self.signal_ids:
             self.signals[ts].signals = self.signals
