@@ -7,9 +7,9 @@ import statistics
 import xml.etree.ElementTree as ET
 
 import matplotlib.pyplot as plt
-#import scienceplots
+import scienceplots
 
-#plt.style.use('science')
+plt.style.use(['science'])
 
 
 RESULTS_DIR = "results"
@@ -850,7 +850,9 @@ def _finish_plot(xlabel, ylabel, title, output_path):
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
-    plt.legend()
+    plt.legend(
+        ncol=2
+    )
     plt.grid(True, linestyle="--", alpha=0.4)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
@@ -872,22 +874,20 @@ def _new_split_figure(height_ratios=(1, 3)):
 
 
 def _add_break_marks(ax_top, ax_bot):
-    """Draw the small diagonal '//' marks on the shared border between the
-    two stacked axes, the standard matplotlib broken-axis convention."""
+    """Draw the small diagonal slash marks on the shared border between the
+    two stacked axes, the standard matplotlib broken-axis convention.
+    """
     ax_top.spines["bottom"].set_visible(False)
     ax_bot.spines["top"].set_visible(False)
     ax_top.xaxis.tick_top()
     ax_top.tick_params(labeltop=False, labelbottom=False, bottom=False)
     ax_bot.xaxis.tick_bottom()
 
-    d = 0.012  # diagonal mark size, in axes-fraction coordinates
-    kwargs = dict(transform=ax_top.transAxes, color="k", clip_on=False, linewidth=1)
-    ax_top.plot((-d, +d), (-d, +d), **kwargs)
-    ax_top.plot((1 - d, 1 + d), (-d, +d), **kwargs)
-
-    kwargs.update(transform=ax_bot.transAxes)
-    ax_bot.plot((-d, +d), (1 - d, 1 + d), **kwargs)
-    ax_bot.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)
+    d = .25  # proportion of vertical to horizontal extent of the slanted line
+    kwargs = dict(marker=[(-1, -d), (1, d)], markersize=12,
+                  linestyle="none", color="k", mec="k", mew=1, clip_on=False)
+    ax_top.plot([0, 1], [0, 0], transform=ax_top.transAxes, **kwargs)
+    ax_bot.plot([0, 1], [1, 1], transform=ax_bot.transAxes, **kwargs)
 
 
 def _auto_split_ylims(per_test_epoch_stats, break_value, top_pad=1.05):
@@ -924,7 +924,7 @@ def _finish_split_plot(ax_top, ax_bot, xlabel, ylabel, title, output_path,
     ax_bot.grid(True, linestyle="--", alpha=0.4)
 
     handles, labels = ax_bot.get_legend_handles_labels()
-    ax_top.legend(handles, labels, loc="upper right", fontsize=9)
+    ax_top.legend(handles, labels, loc="upper right", fontsize=9, ncol=2)
 
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
@@ -972,7 +972,7 @@ def _plot_series_with_band(epoch_stats, label, smooth=True, color=None, ax=None)
     means = [epoch_stats[x][0] for x in xs]
     errs = [epoch_stats[x][1] for x in xs]
 
-    line, = ax.plot(xs, means, marker="o", linewidth=1.5, label=label, color=color)
+    line, = ax.plot(xs, means, marker="", linewidth=1.5, label=label, color=color)
     color = line.get_color()
 
     lo, hi = [], []
@@ -1132,7 +1132,7 @@ def plot_combined_metrics(aggregated_combined_averages, plots_dir):
             metric_axis = metric
             metric_label = metric
 
-        title = f"Average combined {metric_label} per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs"
+        title = f"Average combined {metric_label} per epoch"
         output_path = os.path.join(plots_dir, f"{metric}.png")
 
         break_value = SPLIT_AXIS_BREAKPOINTS.get(metric)
@@ -1154,7 +1154,7 @@ def plot_combined_throughput(aggregated_throughput, plots_dir):
 
     _finish_plot(
         "Epoch", "Throughput (entities/hour)",
-        f"Combined throughput per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs",
+        f"Combined throughput per epoch",
         os.path.join(plots_dir, "throughput_combined.png"),
     )
 
@@ -1178,7 +1178,7 @@ def plot_never_arrived(aggregated_never_arrived, plots_dir):
 
         _finish_plot(
             "Epoch", "Never arrived (entities)",
-            f"Never arrived per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
+            f"Never arrived per epoch ({mode_label})",
             os.path.join(plots_dir, f"never_arrived_{mode}.png"),
         )
 
@@ -1209,7 +1209,7 @@ def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
 
         _finish_plot(
             "Epoch", "Queue length",
-            f"Combined queue$^*$ length per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs",
+            f"Combined queue$^*$ length per epoch",
             os.path.join(plots_dir, "queue_combined.png"),
         )
 
@@ -1228,7 +1228,7 @@ def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
             mode_label = "pedestrians"
             _finish_plot(
             "Epoch", "Queue length",
-            f"Queue$^*$ length per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
+            f"Queue$^*$ length per epoch ({mode_label})",
             os.path.join(plots_dir, f"queue_{mode_key}.png"),
         )
         else:
@@ -1238,7 +1238,7 @@ def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
                 mode_label = "cars"
             _finish_plot(
                 "Epoch", "Queue length",
-                f"Queue length per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
+                f"Queue length per epoch ({mode_label})",
                 os.path.join(plots_dir, f"queue_{mode_key}.png"),
             )
 
@@ -1262,7 +1262,7 @@ def plot_episode_metric_columns(episode_metrics, specs, plots_dir):
 
         _finish_plot(
             "Episode", ylabel,
-            f"{title}, mean $+/-$ {ERROR_BAND_KIND} across runs",
+            f"{title}",
             os.path.join(plots_dir, f"episode_{filename_stub}.png"),
         )
 
@@ -1289,7 +1289,7 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         _finish_plot(
             "Epoch", "Total waiting time (s)",
-            f"Total wait per epoch, {ROLLING_WINDOW}-epoch rolling average, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
+            f"Total wait per epoch, {ROLLING_WINDOW}-epoch rolling average ({mode_label})",
             os.path.join(plots_dir, f"wait_total_smoothed_{mode}.png"),
         )
 
@@ -1302,7 +1302,7 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         _finish_plot(
             "Epoch", "Average waiting time (s)",
-            f"Average wait per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
+            f"Average wait per epoch ({mode_label})",
             os.path.join(plots_dir, f"wait_average_{mode}.png"),
         )
 
@@ -1315,7 +1315,7 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         _finish_plot(
             "Epoch", "90th-percentile waiting time (s)",
-            f"90th-percentile wait per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
+            f"90th-percentile wait per epoch ({mode_label})",
             os.path.join(plots_dir, f"wait_p90_{mode}.png"),
         )
 
@@ -1328,7 +1328,7 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         _finish_plot(
             "Epoch", "Variance of waiting time within epoch",
-            f"Wait stability per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
+            f"Wait stability per epoch ({mode_label})",
             os.path.join(plots_dir, f"wait_stability_{mode}.png"),
         )
 
@@ -1341,7 +1341,7 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         _finish_plot(
             "Epoch", "Throughput (entities/hour)",
-            f"Throughput per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs ({mode_label})",
+            f"Throughput per epoch ({mode_label})",
             os.path.join(plots_dir, f"throughput_{mode}.png"),
         )
 
