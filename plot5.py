@@ -2,6 +2,7 @@ import os
 import re
 import csv
 import math
+import argparse
 import statistics
 import xml.etree.ElementTree as ET
 
@@ -61,6 +62,54 @@ MODE_CAR = "car"
 MODE_BIKE = "bike"
 MODE_PED = "pedestrian"
 ALL_MODES = (MODE_CAR, MODE_BIKE, MODE_PED)
+
+
+# ---------------------------------------------------------------------------
+# Special-case test/run categories for plotting
+# ---------------------------------------------------------------------------
+# Baselines (FIXEDTIME/MAXPRESSURE/MAXWAVE/STOCHASTIC) don't have a
+# meaningful "training curve" over epochs, so instead of a noisy line they're
+# shown as a flat horizontal dashed line at their average value across
+# epochs.
+HLINE_PREFIXES = ("FIXEDTIME", "MAXPRESSURE", "MAXWAVE", "STOCHASTIC")
+
+# Long-horizon RL methods (IPPO/FMA2C) are trained across 1400 epochs, which
+# would otherwise squash/dwarf the ~100-epoch runs sharing the same axes. By
+# default they're collapsed into a single marker (the average of their last
+# few epochs) placed to the right of the other tests' epoch range. Pass
+# --longones on the command line to plot them normally instead.
+MARKER_PREFIXES = ("IPPO", "FMA2C")
+
+# Set from argv in main(); read by classify_test().
+LONGONES = False
+
+# One shared colour palette, assigned per-test across an entire figure (not
+# per-category), so a "normal" line, a baseline hline, and a long-horizon
+# marker on the same plot never end up sharing a colour. Cycled through in
+# whatever order the tests are collected (alphabetical, since they come from
+# sorted(os.listdir(...))).
+PLOT_COLOR_PALETTE = [
+    *plt.get_cmap("tab20").colors,
+    *plt.get_cmap("tab20b").colors,
+]
+
+# Linestyles / marker shapes cycled (by index, within their own category
+# only) so multiple hlines -- or multiple long-horizon markers -- sharing a
+# plot are still visually distinguishable from each other, on top of having
+# distinct colours.
+HLINE_LINESTYLES = ["--", "-.", ":", (0, (3, 1, 1, 1)), (0, (5, 5)), (0, (1, 1))]
+MARKER_STYLES = ["^", "s", "D", "v", "P", "X", "o", "*"]
+
+
+def classify_test(test_name):
+    """Classify a test/run name into "hline", "marker", or "normal" for
+    plotting purposes, based on its prefix (case-insensitive)."""
+    upper = test_name.upper()
+    if upper.startswith(HLINE_PREFIXES):
+        return "hline"
+    if upper.startswith(MARKER_PREFIXES) and not LONGONES:
+        return "marker"
+    return "normal"
 
 
 # ---------------------------------------------------------------------------
@@ -771,9 +820,9 @@ def aggregate_per_mode_wait_stats(per_run_wait_stats):
     """per_run_wait_stats: {test: {run: {mode: {epoch: {stat_dict}}}}}
 
     Returns {test: {mode: {stat_key: {epoch: (mean, err, n)}}}}, where
-    stat_key is one of "total", "average", "p90", "variance", "throughput",
-    plus "total_smoothed" (each run's total series is rolling-averaged
-    first, then aggregated across runs epoch by epoch).
+    stat_key is one of "total", "average", "p90", "variance", "throughput".
+    (Rolling-average smoothing is applied uniformly at plot time instead of
+    here, so every plot -- not just this one -- gets the same treatment.)
     """
     stat_keys = ("total", "average", "p90", "variance", "throughput")
     result = {}
@@ -786,18 +835,6 @@ def aggregate_per_mode_wait_stats(per_run_wait_stats):
                     epochs = per_mode.get(mode, {})
                     per_run_scalar[run] = {e: v[stat_key] for e, v in epochs.items()}
                 result[test][mode][stat_key] = aggregate_scalar_series(per_run_scalar)
-
-            # Smoothed total: rolling-average each run's own total series
-            # first (so smoothing doesn't blur across independent runs),
-            # then aggregate the smoothed values across runs per epoch.
-            per_run_smoothed = {}
-            for run, per_mode in runs.items():
-                epochs = per_mode.get(mode, {})
-                xs = sorted(epochs.keys())
-                raw = [epochs[x]["total"] for x in xs]
-                smoothed = rolling_average(raw, ROLLING_WINDOW)
-                per_run_smoothed[run] = dict(zip(xs, smoothed))
-            result[test][mode]["total_smoothed"] = aggregate_scalar_series(per_run_smoothed)
     return result
 
 
@@ -820,14 +857,122 @@ def _finish_plot(xlabel, ylabel, title, output_path):
     plt.close()
 
 
-def _plot_series_with_band(epoch_stats, label):
+# --- Broken/split y-axis support -------------------------------------------
+# For plots where one or two tests have rare, very large excursions (e.g. a
+# terrible first few epochs) that would otherwise flatten everything else
+# onto a single axis, we can render a small top panel showing the full range
+# and a larger bottom panel zoomed into where most of the data lives.
+
+def _new_split_figure(height_ratios=(1, 3)):
+    fig, (ax_top, ax_bot) = plt.subplots(
+        2, 1, sharex=True, figsize=(10, 7),
+        gridspec_kw={"height_ratios": height_ratios, "hspace": 0.08},
+    )
+    return fig, ax_top, ax_bot
+
+
+def _add_break_marks(ax_top, ax_bot):
+    """Draw the small diagonal '//' marks on the shared border between the
+    two stacked axes, the standard matplotlib broken-axis convention."""
+    ax_top.spines["bottom"].set_visible(False)
+    ax_bot.spines["top"].set_visible(False)
+    ax_top.xaxis.tick_top()
+    ax_top.tick_params(labeltop=False, labelbottom=False, bottom=False)
+    ax_bot.xaxis.tick_bottom()
+
+    d = 0.012  # diagonal mark size, in axes-fraction coordinates
+    kwargs = dict(transform=ax_top.transAxes, color="k", clip_on=False, linewidth=1)
+    ax_top.plot((-d, +d), (-d, +d), **kwargs)
+    ax_top.plot((1 - d, 1 + d), (-d, +d), **kwargs)
+
+    kwargs.update(transform=ax_bot.transAxes)
+    ax_bot.plot((-d, +d), (1 - d, 1 + d), **kwargs)
+    ax_bot.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)
+
+
+def _auto_split_ylims(per_test_epoch_stats, break_value, top_pad=1.05):
+    """Compute (top_ylim, bottom_ylim) for a split-axis plot: the bottom,
+    zoomed-in panel covers [0, break_value]; the top panel covers
+    [break_value, actual max] so nothing is clipped. Uses mean+err (not just
+    the mean) so shaded bands aren't cut off either."""
+    all_his = []
+    for epoch_stats in per_test_epoch_stats.values():
+        for m, e, _n in epoch_stats.values():
+            if isinstance(m, float) and math.isnan(m):
+                continue
+            e = 0.0 if (isinstance(e, float) and math.isnan(e)) else e
+            all_his.append(m + e)
+
+    data_max = max(all_his) if all_his else break_value * 2
+    bottom_ylim = (0, break_value)
+    top_ylim = (break_value, max(data_max * top_pad, break_value * 1.1))
+    return top_ylim, bottom_ylim
+
+
+def _finish_split_plot(ax_top, ax_bot, xlabel, ylabel, title, output_path,
+                        top_ylim, bottom_ylim):
+    ax_top.set_ylim(*top_ylim)
+    ax_bot.set_ylim(*bottom_ylim)
+
+    _add_break_marks(ax_top, ax_bot)
+
+    ax_bot.set_xlabel(xlabel)
+    ax_bot.set_ylabel(ylabel)
+    ax_top.set_title(title)
+
+    ax_top.grid(True, linestyle="--", alpha=0.4)
+    ax_bot.grid(True, linestyle="--", alpha=0.4)
+
+    handles, labels = ax_bot.get_legend_handles_labels()
+    ax_top.legend(handles, labels, loc="upper right", fontsize=9)
+
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def _new_split_figure_and_plot(per_test_series, break_value, xlabel, ylabel,
+                                title, output_path, smooth=True):
+    """Convenience wrapper: build a split-axis figure, plot the same series
+    on both panels, auto-size the panels around `break_value`, and save.
+    Drop-in alternative to _new_figure() + _plot_multi_test_series() +
+    _finish_plot() for metrics that need a broken axis."""
+    _fig, ax_top, ax_bot = _new_split_figure()
+    _plot_multi_test_series(per_test_series, smooth=smooth, axes=(ax_top, ax_bot))
+
+    top_ylim, bottom_ylim = _auto_split_ylims(per_test_series, break_value)
+    _finish_split_plot(ax_top, ax_bot, xlabel, ylabel, title, output_path, top_ylim, bottom_ylim)
+
+
+def _smooth_epoch_stats(epoch_stats, window=ROLLING_WINDOW):
+    """epoch_stats: {epoch: (mean, err, n)}. Returns a new dict with the
+    mean and err series each replaced by their rolling average over
+    `window` epochs (n is left untouched)."""
+    xs = sorted(epoch_stats.keys())
+    means = [epoch_stats[x][0] for x in xs]
+    errs = [epoch_stats[x][1] for x in xs]
+    ns = [epoch_stats[x][2] for x in xs]
+
+    smoothed_means = rolling_average(means, window)
+    smoothed_errs = rolling_average(errs, window)
+
+    return {x: (m, e, n) for x, m, e, n in zip(xs, smoothed_means, smoothed_errs, ns)}
+
+
+def _plot_series_with_band(epoch_stats, label, smooth=True, color=None, ax=None):
     """epoch_stats: {epoch: (mean, err, n)}. Plots the mean line and a
-    shaded +/- err band in the same color."""
+    shaded +/- err band in the same color. If `smooth` is True (default),
+    both the mean and the error band are rolling-averaged over
+    ROLLING_WINDOW epochs first. `ax` defaults to the current axes."""
+    ax = ax if ax is not None else plt.gca()
+
+    if smooth:
+        epoch_stats = _smooth_epoch_stats(epoch_stats, ROLLING_WINDOW)
+
     xs = sorted(epoch_stats.keys())
     means = [epoch_stats[x][0] for x in xs]
     errs = [epoch_stats[x][1] for x in xs]
 
-    line, = plt.plot(xs, means, marker="o", linewidth=1.5, label=label)
+    line, = ax.plot(xs, means, marker="o", linewidth=1.5, label=label, color=color)
     color = line.get_color()
 
     lo, hi = [], []
@@ -840,7 +985,125 @@ def _plot_series_with_band(epoch_stats, label):
             lo.append(m - e)
             hi.append(m + e)
 
-    plt.fill_between(xs, lo, hi, alpha=0.2, color=color, linewidth=0)
+    ax.fill_between(xs, lo, hi, alpha=0.2, color=color, linewidth=0)
+
+
+def _plot_hline_series(epoch_stats, label, style_index=0, color=None, ax=None):
+    """epoch_stats: {epoch: (mean, err, n)}. Plots a horizontal line at the
+    average of the (unsmoothed) per-epoch means -- for baseline tests that
+    don't have a meaningful epoch-by-epoch trend. `style_index` cycles
+    through HLINE_LINESTYLES so multiple baselines on the same plot are
+    distinguishable even where their colours are close. `ax` defaults to
+    the current axes."""
+    ax = ax if ax is not None else plt.gca()
+
+    means = [
+        m for m, _e, _n in epoch_stats.values()
+        if not (isinstance(m, float) and math.isnan(m))
+    ]
+    if not means:
+        return
+    avg = sum(means) / len(means)
+    linestyle = HLINE_LINESTYLES[style_index % len(HLINE_LINESTYLES)]
+    ax.axhline(y=avg, linestyle=linestyle, linewidth=1.5, label=label, color=color)
+
+
+def _plot_marker_series(epoch_stats, label, x_pos, window=ROLLING_WINDOW,
+                         style_index=0, color=None, ax=None):
+    """epoch_stats: {epoch: (mean, err, n)}. Plots a single marker at x_pos
+    whose y value is the average of the last `window` epochs' means -- for
+    long-horizon tests that are collapsed to a single point. `style_index`
+    cycles through MARKER_STYLES so multiple long-horizon tests on the same
+    plot are distinguishable. `ax` defaults to the current axes."""
+    ax = ax if ax is not None else plt.gca()
+
+    xs = sorted(epoch_stats.keys())
+    if not xs:
+        return
+    last_xs = xs[-window:] if len(xs) >= window else xs
+    vals = [
+        epoch_stats[x][0] for x in last_xs
+        if not (isinstance(epoch_stats[x][0], float) and math.isnan(epoch_stats[x][0]))
+    ]
+    if not vals:
+        return
+    avg = sum(vals) / len(vals)
+    marker = MARKER_STYLES[style_index % len(MARKER_STYLES)]
+    ax.plot(x_pos, avg, marker=marker, markersize=11, linestyle="none", label=label, color=color)
+
+
+def _plot_multi_test_series(per_test_epoch_stats, smooth=True, ax=None, axes=None):
+    """per_test_epoch_stats: {test: {epoch: (mean, err, n)}}.
+
+    Dispatches each test to the appropriate plotting style based on
+    classify_test(): a normal smoothed line+band, a horizontal average line
+    (baselines), or a single marker placed to the right of the other
+    (normal) tests' epoch range (long-horizon RL methods). Every test gets a
+    unique colour from PLOT_COLOR_PALETTE (shared across categories, so a
+    normal line, an hline, and a marker never collide), plus a cycled
+    linestyle/marker-shape within its own category for extra distinction.
+
+    `ax`: a single axes to draw on (normal, single-panel plots).
+    `axes`: an iterable of axes to draw the *same* series on all of them
+    (used for broken/split-axis plots, e.g. (ax_top, ax_bot)).
+    If neither is given, uses plt.gca().
+    """
+    target_axes = list(axes) if axes is not None else [ax if ax is not None else plt.gca()]
+
+    categories = {test: classify_test(test) for test in per_test_epoch_stats}
+
+    normal_epochs = set()
+    for test, cat in categories.items():
+        if cat == "normal":
+            normal_epochs.update(per_test_epoch_stats[test].keys())
+
+    if normal_epochs:
+        x_max = max(normal_epochs)
+    else:
+        # No "normal" tests on this plot; fall back to the max epoch across
+        # everything so the marker still has a sensible x position.
+        all_epochs = set()
+        for epochs in per_test_epoch_stats.values():
+            all_epochs.update(epochs.keys())
+        x_max = max(all_epochs) if all_epochs else 100
+
+    marker_x = x_max + max(10, 0.1 * x_max)
+
+    color_i = 0
+    hline_i = 0
+    marker_i = 0
+    for test, epoch_stats in per_test_epoch_stats.items():
+        cat = categories[test]
+        color = PLOT_COLOR_PALETTE[color_i % len(PLOT_COLOR_PALETTE)]
+        color_i += 1
+
+        for target_ax in target_axes:
+            if cat == "hline":
+                _plot_hline_series(epoch_stats, test, style_index=hline_i, color=color, ax=target_ax)
+            elif cat == "marker":
+                _plot_marker_series(epoch_stats, test, marker_x, style_index=marker_i, color=color, ax=target_ax)
+            else:
+                _plot_series_with_band(epoch_stats, test, smooth=smooth, color=color, ax=target_ax)
+
+        if cat == "hline":
+            hline_i += 1
+        elif cat == "marker":
+            marker_i += 1
+
+
+# Metrics whose combined-metric plot should use a broken/split y-axis (a
+# small top panel for the full range, a larger zoomed-in bottom panel)
+# because one or two tests have rare, very large early-training excursions
+# that would otherwise flatten everything else onto a single axis. Maps
+# metric -> break value (data at/below this goes in the zoomed bottom
+# panel; above it goes in the top panel). A metric not listed here is
+# plotted on a single normal axis. Tune the break value to just above where
+# the "interesting" cluster of methods lives.
+SPLIT_AXIS_BREAKPOINTS = {
+    "duration": 200,
+    "timeLoss": 200,
+    "waitingTime": 200,
+}
 
 
 def plot_combined_metrics(aggregated_combined_averages, plots_dir):
@@ -848,10 +1111,11 @@ def plot_combined_metrics(aggregated_combined_averages, plots_dir):
     os.makedirs(plots_dir, exist_ok=True)
 
     for metric in METRICS:
-        _new_figure()
-        for test, per_metric in aggregated_combined_averages.items():
-            _plot_series_with_band(per_metric[metric], test)
-            
+        per_test_series = {
+            test: per_metric[metric]
+            for test, per_metric in aggregated_combined_averages.items()
+        }
+
         if metric == "duration":
             metric_axis = "Duration (s)"
             metric_label = "duration"
@@ -867,19 +1131,26 @@ def plot_combined_metrics(aggregated_combined_averages, plots_dir):
         else:
             metric_axis = metric
             metric_label = metric
-        _finish_plot(
-            "Epoch", metric_axis,
-            f"Average combined {metric_label} per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs",
-            os.path.join(plots_dir, f"{metric}.png"),
-        )
+
+        title = f"Average combined {metric_label} per epoch, mean $+/-$ {ERROR_BAND_KIND} across runs"
+        output_path = os.path.join(plots_dir, f"{metric}.png")
+
+        break_value = SPLIT_AXIS_BREAKPOINTS.get(metric)
+        if break_value is not None:
+            _new_split_figure_and_plot(
+                per_test_series, break_value, "Epoch", metric_axis, title, output_path,
+            )
+        else:
+            _new_figure()
+            _plot_multi_test_series(per_test_series)
+            _finish_plot("Epoch", metric_axis, title, output_path)
 
 
 def plot_combined_throughput(aggregated_throughput, plots_dir):
     os.makedirs(plots_dir, exist_ok=True)
 
     _new_figure()
-    for test, epoch_stats in aggregated_throughput.items():
-        _plot_series_with_band(epoch_stats, test)
+    _plot_multi_test_series(aggregated_throughput)
 
     _finish_plot(
         "Epoch", "Throughput (entities/hour)",
@@ -893,8 +1164,10 @@ def plot_never_arrived(aggregated_never_arrived, plots_dir):
 
     for mode in ALL_MODES:
         _new_figure()
-        for test, per_mode in aggregated_never_arrived.items():
-            _plot_series_with_band(per_mode[mode], test)
+        per_test_series = {
+            test: per_mode[mode] for test, per_mode in aggregated_never_arrived.items()
+        }
+        _plot_multi_test_series(per_test_series)
 
         if mode == MODE_PED or mode == "ped":
             mode_label = "pedestrians"
@@ -929,8 +1202,10 @@ def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
     # --- combined queue (car + bike + ped) ---
     if any(_has_real_data(per_key["combined"]) for per_key in aggregated_queue_metrics.values()):
         _new_figure()
-        for test, per_key in aggregated_queue_metrics.items():
-            _plot_series_with_band(per_key["combined"], test)
+        per_test_series = {
+            test: per_key["combined"] for test, per_key in aggregated_queue_metrics.items()
+        }
+        _plot_multi_test_series(per_test_series)
 
         _finish_plot(
             "Epoch", "Queue length",
@@ -944,8 +1219,10 @@ def plot_queue_metrics(aggregated_queue_metrics, plots_dir):
             continue
 
         _new_figure()
-        for test, per_key in aggregated_queue_metrics.items():
-            _plot_series_with_band(per_key[mode_key], test)
+        per_test_series = {
+            test: per_key[mode_key] for test, per_key in aggregated_queue_metrics.items()
+        }
+        _plot_multi_test_series(per_test_series)
 
         if mode_key == "ped":
             mode_label = "pedestrians"
@@ -981,8 +1258,7 @@ def plot_episode_metric_columns(episode_metrics, specs, plots_dir):
             continue
 
         _new_figure()
-        for test, per_epoch in aggregated.items():
-            _plot_series_with_band(per_epoch, test)
+        _plot_multi_test_series(aggregated)
 
         _finish_plot(
             "Episode", ylabel,
@@ -992,22 +1268,24 @@ def plot_episode_metric_columns(episode_metrics, specs, plots_dir):
 
 
 def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
-    """One figure per mode per statistic: total (smoothed), average, p90,
-    variance, throughput -- each as mean +/- band across runs."""
+    """One figure per mode per statistic: total, average, p90, variance,
+    throughput -- each as mean +/- band across runs (rolling-averaged)."""
     os.makedirs(plots_dir, exist_ok=True)
 
     for mode in ALL_MODES:
-        # --- total wait, smoothed with rolling average (per run, then aggregated) ---
-        _new_figure()
-        for test, per_mode in aggregated_wait_stats.items():
-            _plot_series_with_band(per_mode[mode]["total_smoothed"], test)
-
         if mode == MODE_PED or mode == "ped":
             mode_label = "pedestrians"
         elif mode == MODE_BIKE or mode == "bike":
             mode_label = "cyclists"
         else:
             mode_label = "cars"
+
+        # --- total wait ---
+        _new_figure()
+        per_test_series = {
+            test: per_mode[mode]["total"] for test, per_mode in aggregated_wait_stats.items()
+        }
+        _plot_multi_test_series(per_test_series)
 
         _finish_plot(
             "Epoch", "Total waiting time (s)",
@@ -1017,8 +1295,10 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         # --- average wait ---
         _new_figure()
-        for test, per_mode in aggregated_wait_stats.items():
-            _plot_series_with_band(per_mode[mode]["average"], test)
+        per_test_series = {
+            test: per_mode[mode]["average"] for test, per_mode in aggregated_wait_stats.items()
+        }
+        _plot_multi_test_series(per_test_series)
 
         _finish_plot(
             "Epoch", "Average waiting time (s)",
@@ -1028,8 +1308,10 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         # --- 90th percentile wait ---
         _new_figure()
-        for test, per_mode in aggregated_wait_stats.items():
-            _plot_series_with_band(per_mode[mode]["p90"], test)
+        per_test_series = {
+            test: per_mode[mode]["p90"] for test, per_mode in aggregated_wait_stats.items()
+        }
+        _plot_multi_test_series(per_test_series)
 
         _finish_plot(
             "Epoch", "90th-percentile waiting time (s)",
@@ -1039,8 +1321,10 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         # --- wait stability (variance within epoch, plotted across epochs) ---
         _new_figure()
-        for test, per_mode in aggregated_wait_stats.items():
-            _plot_series_with_band(per_mode[mode]["variance"], test)
+        per_test_series = {
+            test: per_mode[mode]["variance"] for test, per_mode in aggregated_wait_stats.items()
+        }
+        _plot_multi_test_series(per_test_series)
 
         _finish_plot(
             "Epoch", "Variance of waiting time within epoch",
@@ -1050,8 +1334,10 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 
         # --- throughput per mode ---
         _new_figure()
-        for test, per_mode in aggregated_wait_stats.items():
-            _plot_series_with_band(per_mode[mode]["throughput"], test)
+        per_test_series = {
+            test: per_mode[mode]["throughput"] for test, per_mode in aggregated_wait_stats.items()
+        }
+        _plot_multi_test_series(per_test_series)
 
         _finish_plot(
             "Epoch", "Throughput (entities/hour)",
@@ -1064,7 +1350,25 @@ def plot_per_mode_wait_stats(aggregated_wait_stats, plots_dir):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Plot MoveMax results.")
+    parser.add_argument(
+        "--longones",
+        action="store_true",
+        help=(
+            "Plot IPPO/FMA2C runs normally (full 1400-epoch line+band) "
+            "instead of collapsing them into a single marker to the right "
+            "of the other tests."
+        ),
+    )
+    return parser.parse_args()
+
+
 def main():
+    global LONGONES
+    args = parse_args()
+    LONGONES = args.longones
+
     base_dir = os.path.dirname(os.path.abspath(__file__))
     results_dir = os.path.join(base_dir, RESULTS_DIR)
     plots_dir = os.path.join(base_dir, PLOTS_DIR)
