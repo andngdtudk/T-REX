@@ -1065,7 +1065,7 @@ def _plot_multi_test_series(per_test_epoch_stats, smooth=True, ax=None, axes=Non
         all_epochs = set()
         for epochs in per_test_epoch_stats.values():
             all_epochs.update(epochs.keys())
-        x_max = max(all_epochs) if all_epochs else 100
+        x_max = max(all_epochs) if all_epochs else 150
 
     marker_x = x_max + max(10, 0.1 * x_max)
 
