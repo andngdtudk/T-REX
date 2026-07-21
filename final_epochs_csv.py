@@ -3,12 +3,12 @@
 epoch, as a CSV -- one row per test/model, one column per metric, with each
 cell formatted as e.g. "455.12 \\pm 2.23".
 
-Reuses every parsing/aggregation function from plot_results.py, so the
+Reuses every parsing/aggregation function from plot5.py, so the
 metrics reported here always match what's plotted -- this script just reads
 the same per-run series and reports a single epoch's cross-run mean and 95%
 confidence interval instead of a full curve.
 
-Run this from the same directory as plot_results.py (it imports it), with
+Run this from the same directory as plot5.py (it imports it), with
 the same results/<test>/<run>/ layout underneath.
 """
 import os
@@ -16,7 +16,7 @@ import csv
 import math
 import statistics
 
-import plot_results as pr
+import plot5 as pr
 
 try:
     from scipy import stats as _scipy_stats

@@ -11,6 +11,7 @@ dynamic range without throwing away information.
 
 Usage:
     python calibrate_norm_wait.py --log_dir results/IDQN_MM2-tr0-kbh_j1_442m-0-drq_mm2_delta-wait_multimodal_delta_sclip/
+    python calibrate_norm_wait.py --log_dir results40_c2comp/IDQN_MM2/IDQN_MM2-tr0-kbh_c2_454m-5-drq_mm2_delta-wait_multimodal_delta_sclip/
 
 Prints recommended mdp_configs values and writes calibration_report.txt.
 """
@@ -31,7 +32,7 @@ def main():
     parser.add_argument("--ped_w",  type=float, default=1.0)
     args = parser.parse_args()
 
-    step_path = os.path.join(args.log_dir, "mm_step_metrics.csv")
+    step_path = os.path.join(args.log_dir, "IDQN_MM2_mm_step_metrics.csv")
     if not os.path.exists(step_path):
         sys.exit(f"[error] {step_path} not found.")
 
@@ -120,7 +121,7 @@ def main():
 }},""")
     lines.append(f"""
 --- What this fixes ---
-Current norm_wait=224 → typical delta ({p75:.0f}) / 224 = {p75/224:.1f}x clip limit.
+Current norm_wait=540.5 → typical delta ({p75:.0f}) / 540.5 = {p75/540.5:.1f}x clip limit.
 Every reward is clipped to ±{recommended_clip}; the agent sees only a binary signal.
 
 New norm_wait={recommended_norm} → typical delta normalises to ~1.0 before clipping.
