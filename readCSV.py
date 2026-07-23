@@ -8,14 +8,21 @@ import matplotlib.pyplot as plt
 # log_dir = os.path.join(os.path.dirname(os.path.dirname(os.getcwd())), 'results' + os.sep)
 # log_dir = os.path.join(os.path.dirname(os.getcwd()), 'results_s2' + os.sep)
 
-log_dir = os.path.join(os.getcwd(), 'results_test_new' + os.sep)
+PATHNAME = 'results'
+
+log_dir = os.path.join(os.getcwd(), PATHNAME + os.sep)
 
 # log_dir = '/mnt/raid/andng_backup/results_ic2' + os.sep
 
 env_base = '.'+os.sep+'environments'+os.sep
 names = [folder for folder in next(os.walk(log_dir))[1]]
 
+# ======================== CHANGE ME ========================
 metric = 'queue'
+# metric = 'delay'
+# metric = 'wait'
+# metric = 'duration'
+
 output_file = 'avg_{}.py'.format(metric)
 run_avg = dict()
 

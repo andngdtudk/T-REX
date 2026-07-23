@@ -1,12 +1,16 @@
+from functools import partial
+from TREX_comp.config.signal_config import signal_configs
 import TREX_comp.rewards as rewards
 import TREX_comp.states as states
 
 from TREX_comp.agents.stochastic import STOCHASTIC
 from TREX_comp.agents.maxwave import MAXWAVE
 from TREX_comp.agents.maxpressure import MAXPRESSURE
+from TREX_comp.agents.fixedtime import FIXEDTIME
 from TREX_comp.agents.pfrl_dqn import IDQN
 from TREX_comp.agents.pfrl_ppo import IPPO
 from TREX_comp.agents.mplight import MPLight
+from TREX_comp.agents.mplight_mm import MPLight_MM
 from TREX_comp.agents.fma2c import FMA2C
 
 agent_configs = {
@@ -80,6 +84,12 @@ agent_configs = {
         'reward': rewards.wait,
         'max_distance': 200
     },
+    'FIXEDTIME': {
+        'agent': FIXEDTIME,
+        'state': states.drq_multimodal_norm,   # computed but unused by the agent
+        'reward': rewards.wait,    # same
+        'max_distance': 200
+    },
     'IDQN': {
         'agent': IDQN,
         'state': states.drq_norm,
@@ -89,9 +99,89 @@ agent_configs = {
         'GAMMA': 0.99,
         'EPS_START': 1.0,
         'EPS_END': 0.0,
+        'EPS_DECAY': 43200,
+        'TARGET_UPDATE': 500
+    },
+
+    "IDQN_MULTIMODAL": {
+        'agent': IDQN,
+        'state': states.drq_multimodal_norm,
+        'reward': rewards.wait_multimodal_norm,
+        'max_distance': 200,
+        'BATCH_SIZE': 32,
+        'GAMMA': 0.99,
+        'EPS_START': 1.0,
+        'EPS_END': 0.0,
         'EPS_DECAY': 220,
         'TARGET_UPDATE': 500
     },
+
+    "IDQN_DELTA": {
+        'agent': IDQN,
+        'state': states.drq_delta_norm,
+        'reward': rewards.wait_delta_norm,
+        'max_distance': 200,
+        'BATCH_SIZE': 32,
+        'GAMMA': 0.99,
+        'EPS_START': 1.0,
+        'EPS_END': 0.0,
+        'EPS_DECAY': 220,
+        'TARGET_UPDATE': 500
+    },
+
+    "IDQN_DELTASCALE": {
+        'agent': IDQN,
+        'state': states.drq_delta_norm,
+        'reward': rewards.wait_delta_scale,
+        'max_distance': 200,
+        'BATCH_SIZE': 32,
+        'GAMMA': 0.99,
+        'EPS_START': 1.0,
+        'EPS_END': 0.0,
+        'EPS_DECAY': 220,
+        'TARGET_UPDATE': 500
+    },
+
+    "IDQN_DELTASCLIP": {
+        'agent': IDQN,
+        'state': states.drq_delta_norm,
+        'reward': rewards.wait_delta_sclip,
+        'max_distance': 200,
+        'BATCH_SIZE': 32,
+        'GAMMA': 0.99,
+        'EPS_START': 1.0,
+        'EPS_END': 0.0,
+        'EPS_DECAY': 220,
+        'TARGET_UPDATE': 500
+    },
+
+    "IDQN_DELTAVAR": {
+        'agent': IDQN,
+        'state': states.drq_delta_norm,
+        'reward': rewards.wait_delta_var,
+        'max_distance': 200,
+        'BATCH_SIZE': 32,
+        'GAMMA': 0.99,
+        'EPS_START': 1.0,
+        'EPS_END': 0.0,
+        'EPS_DECAY': 220,
+        'TARGET_UPDATE': 500
+    },
+
+    "IDQN_MM2": {
+        'agent': IDQN,
+        'state': states.drq_mm2_delta,
+        'reward': rewards.wait_multimodal_delta_sclip,
+        'max_distance': 200,
+        'BATCH_SIZE': 32,
+        'GAMMA': 0.95, # was 0.99, changed to stabilize
+        'EPS_START': 1.0,
+        'EPS_END': 0.05, # was 0.0, avoid fully greedy
+        'EPS_DECAY': 54000, # 80 % of steps for 100 is 43200, for 150 steps is 54000
+        'TARGET_UPDATE': 50, # was 500, changed to handle fast Q growth
+        "MAX_GRAD_NORM": 1.0, # added to handle fast Q growth
+    },
+
     'IPPO': {
         'agent': IPPO,
         'state': states.drq_norm,
@@ -107,10 +197,26 @@ agent_configs = {
         'GAMMA': 0.99,
         'EPS_START': 1.0,
         'EPS_END': 0.0,
-        'EPS_DECAY': 220,
+        'EPS_DECAY': 54000,
         'TARGET_UPDATE': 500,
         'demand_shape': 1
     },
+
+    'MPLight_MM': {
+            'agent': MPLight_MM,
+            'state': states.mplight_mm,
+            'reward': rewards.mplight_mm,
+            'max_distance': 200,
+            'BATCH_SIZE': 32,
+            'GAMMA': 0.99,
+            'EPS_START': 1.0,
+            'EPS_END': 0.05, # was 0.0, avoid fully greedy
+            'EPS_DECAY': 54000, # 100% of steps
+            'TARGET_UPDATE': 500,
+            'demand_shape': 2 # car and bike
+        },
+
+    
     'FMA2C': {
         'agent': FMA2C,
         'state': states.fma2c,

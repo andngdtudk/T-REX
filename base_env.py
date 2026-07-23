@@ -1,4 +1,3 @@
-
 # Adapted from original: https://github.com/Pi-Star-Lab/RESCO
 
 import os
@@ -6,12 +5,19 @@ import numpy as np
 import traci
 import sumolib
 import gym
-from traffic_signal import Signal
+import traceback
+from traffic_signal import Signal, ensure_map_signal_control_config, export_map_signal_config
+from simulation_summary import (
+    initialize_runtime_counters,
+    update_runtime_counters,
+    finalize_runtime_state,
+    print_grouped_mode_summary,
+)
 
 class BaseEnv(gym.Env):
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False, end_time=3600,
                  step_length=10, yellow_length=4, step_ratio=1, max_distance=200, lights=(), log_dir='/', libsumo=False,
-                 warmup=0, gymma=False, run=0, level=None):
+                 warmup=0, gymma=False, run=0, level=None, max_green_hold_steps=12):
         self.libsumo = libsumo
         self.gymma = gymma  # gymma expects sequential list of states/rewards instead of dict
         print(map_name, net, state_fn.__name__, reward_fn.__name__)
@@ -23,6 +29,7 @@ class BaseEnv(gym.Env):
         self.reward_fn = reward_fn
         self.max_distance = max_distance
         self.warmup = warmup
+        self.max_green_hold_steps = max_green_hold_steps
 
         self.end_time = end_time
         self.step_length = step_length
@@ -33,9 +40,9 @@ class BaseEnv(gym.Env):
 
         # Run some steps in the simulation with default light configurations to detect phases
         if self.route is not None:
-            sumo_cmd = [sumolib.checkBinary('sumo'), '-n', net, '-r', self.route + '_1.rou.xml', '--no-warnings', 'True']
+            sumo_cmd = [sumolib.checkBinary('sumo'), '-n', net, '-r', self.route + '_1.rou.xml', '--no-warnings', 'True', '--duration-log.statistics', 'False']
         else:
-            sumo_cmd = [sumolib.checkBinary('sumo'), '-c', net, '--no-warnings', 'True']
+            sumo_cmd = [sumolib.checkBinary('sumo'), '-c', net, '--no-warnings', 'True', '--duration-log.statistics', 'False']
         if self.libsumo:
             traci.start(sumo_cmd)
             self.sumo = traci
@@ -55,6 +62,9 @@ class BaseEnv(gym.Env):
             for lightID in self.signal_ids
         }
 
+        # NOTE: ensure_map_signal_control_config's call MOVED from here to
+        # after Signal construction below; it now needs real Signal objects
+        # (with movement_index_map already built) rather than raw phases.
 
         self.signals = dict()
 
@@ -67,10 +77,28 @@ class BaseEnv(gym.Env):
         self.observation_space = list()
         self.action_space = list()
         for ts in self.all_ts_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
+    
+        # MOVED HERE: all Signal objects now exist with real movement_index_map
+        # populated (built inside Signal.__init__), and NONE of them have had
+        # observe() called yet (so _collect_ped_crossing_pressure's valid_acts
+        # lookup hasn't run yet either) -- safe ordering.
+        ensure_map_signal_control_config(self.map_name, self.signals)
+    
+        exported_file = export_map_signal_config(self.map_name)
+        if exported_file is not None:
+            print('Generated signal config file:', exported_file)
         for ts in self.all_ts_ids:
             self.signals[ts].signals = self.signals
-            self.signals[ts].observe(self.step_length, self.max_distance)
+            self.signals[ts].observe(self.step_length, self.max_distance)   # now safe: valid_acts exists
+
         observations = self.state_fn(self.signals)
         self.ts_order = list()
         for ts in observations:
@@ -91,6 +119,7 @@ class BaseEnv(gym.Env):
         self.run = run
         self.metrics = []
         self.wait_metric = dict()
+        self.summary_counters = initialize_runtime_counters()
 
         if not self.libsumo: traci.switch(self.connection_name)
         traci.close()
@@ -104,13 +133,19 @@ class BaseEnv(gym.Env):
         # The monaco scenario expects .25s steps instead of 1s, account for that here.
         for _ in range(self.step_ratio):
             self.sumo.simulationStep()
+            update_runtime_counters(self.sumo, self.summary_counters)
         
     def reset(self):
+        if hasattr(self.reward_fn, 'reset'):
+            self.reward_fn.reset()
         if self.run != 0:
             if not self.libsumo: traci.switch(self.connection_name)
+            self._finalize_current_run_summary()
             traci.close()
+            print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
             self.save_metrics()
         self.metrics = []
+
 
         self.run += 1
 
@@ -127,15 +162,21 @@ class BaseEnv(gym.Env):
             self.sumo_cmd += ['-c', self.net]
         self.sumo_cmd += ['--random', '--time-to-teleport', '-1', '--tripinfo-output',
                           os.path.join(self.log_dir, self.connection_name, 'tripinfo_' + str(self.run) + '.xml'),
+                          '--personinfo-output',
+                          os.path.join(self.log_dir, self.connection_name, 'personinfo_' + str(self.run) + '.xml'),
                           '--tripinfo-output.write-unfinished',
+                          '--duration-log.statistics', 'False',
                           '--no-step-log', 'True',
-                          '--no-warnings', 'True']
+                          '--no-warnings', 'True',
+                          #'--fcd-output', os.path.join(self.log_dir, self.connection_name, 'fcd_' + str(self.run) + '.xml')
+                          ]
         if self.libsumo:
             traci.start(self.sumo_cmd)
             self.sumo = traci
         else:
             traci.start(self.sumo_cmd, label=self.connection_name)
             self.sumo = traci.getConnection(self.connection_name)
+        self.summary_counters = initialize_runtime_counters()
 
         for _ in range(self.warmup):
             self.step_sim()
@@ -147,7 +188,16 @@ class BaseEnv(gym.Env):
             self.signal_ids.append(self.all_ts_ids[i])
 
         for ts in self.signal_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            print(f"[DEBUG] about to construct Signal {ts}", flush=True)
+            self.signals[ts] = Signal(
+                self.map_name,
+                self.sumo,
+                ts,
+                self.yellow_length,
+                self.phases[ts],
+                max_green_hold_steps=self.max_green_hold_steps,
+            )
+            print(f"[DEBUG] constructed Signal {ts}", flush=True)
             self.wait_metric[ts] = 0.0
         for ts in self.signal_ids:
             self.signals[ts].signals = self.signals
@@ -173,18 +223,28 @@ class BaseEnv(gym.Env):
         for signal in self.signals:
             self.signals[signal].prep_phase(act[signal])
 
-        for step in range(self.yellow_length):
+        for _ in range(self.yellow_length):
             self.step_sim()
         for signal in self.signal_ids:
             self.signals[signal].set_phase()
-        for step in range(self.step_length - self.yellow_length):
+        for _ in range(self.step_length - self.yellow_length):
             self.step_sim()
         for signal in self.signal_ids:
             self.signals[signal].observe(self.step_length, self.max_distance)
 
-        # observe new state and reward
+        # debug
+        # for signal_id in self.signal_ids:
+        #     for i in range(len(self.signals[signal_id].phases)):
+        #         count = self.signals[signal_id].sumo.trafficlight.getServedPersonCount(signal_id, i)
+        #         print(f"[DEBUG] {signal_id} phase {i}: getServedPersonCount={count}")
+
+        # real step counter — use simulation time, which is already
+        # authoritative and available regardless of how step_length/yellow_length
+        # are configured
+        sim_time = self.sumo.simulation.getTime()
+
         observations = self.state_fn(self.signals)
-        rewards = self.reward_fn(self.signals)
+        rewards = self.reward_fn(self.signals, sim_time)
 
         self.calc_metrics(rewards)
 
@@ -195,6 +255,7 @@ class BaseEnv(gym.Env):
                 obss.append(observations[ts])
                 rww.append(rewards[ts])
             return obss, rww, [done], {'eps': self.run}
+
         return observations, rewards, done, {'eps': self.run}
 
     def calc_metrics(self, rewards):
@@ -229,7 +290,17 @@ class BaseEnv(gym.Env):
     def render(self, mode='human'):
         pass
 
+    def _finalize_current_run_summary(self):
+        if self.run <= 0:
+            return
+        try:
+            finalize_runtime_state(self.sumo, self.summary_counters)
+        except Exception as exc:
+            print(f'Could not finalize grouped mode summary state: {exc}')
+
     def close(self):
         if not self.libsumo: traci.switch(self.connection_name)
+        self._finalize_current_run_summary()
         traci.close()
+        print_grouped_mode_summary(self.log_dir, self.connection_name, self.run, self.summary_counters)
         self.save_metrics()

@@ -1,0 +1,85 @@
+(default):
+  colors_map:
+    # Algorithm to color map
+    'Max Pressure': 'C3'
+    'IDQN': 'C0'
+    'Fixed Time': 'C1'
+    'MPLight': 'C2'
+    'Advanced-MPLight': 'C4'
+    'Parameter Reset': 'C5'
+
+
+  names_map:
+    # Metric display names
+    'timeLoss':       'Average Delay'
+    'duration':       'Average Travel Time'
+    'waitingTime':    'Average Waiting Time'
+    'rewards':        'Reward'
+    'max_queues':     'Max Queue Length'
+    'queue_lengths':  'Average Queue Length'
+    'vehicles':       'Demand'
+    'phase_length':   'Phase Length'
+
+    # Axis labelling
+    'yaxis_timeLoss':       'Delay (s)'
+    'yaxis_duration':       'Travel Time (s)'
+    'yaxis_waitingTime':    'Waiting Time (s)'
+    'yaxis_rewards':         'Reward total'
+    'yaxis_max_queues':      'Queue length'
+    'yaxis_queue_lengths':  'Queue length'
+    'yaxis_vehicles':       'Vehicles (vpm)'
+
+    # Map display names
+    cologne1: 'Cologne Single'
+    cologne3: 'Cologne Corridor'
+    cologne8: 'Cologne Region'
+    ingolstadt1: 'Ingolstadt Single'
+    ingolstadt7: 'Ingolstadt Corridor'
+    ingolstadt21: 'Ingolstadt Region'
+    saltlake2_stateXuniversity: 'Univ & State - 2023 Q1'
+    saltlake2_stateXuniversity#signals@['A3']: 'Univ & State - 2023 Q1 - West Signal'
+    saltlake2_stateXuniversity#signals@['B3']: 'Univ & State - 2023 Q1 - East Signal'
+    saltlake2_400sX200w: '400S & 200W - 2023 Q1'
+    saltlake2_400sX200w#signals@['A3'] : '400S & 200W - 2023 Q1 - West Signal'
+    saltlake2_400sX200w#signals@['B3'] : '400S & 200W - 2023 Q1 - East Signal'
+
+    # Algorithms
+    FIXED: Fixed time
+    MAXWAVE: Max wave
+    MAXPRESSURE: Max pressure
+    RLCD: RL-CD
+    AdvancedMPLight: Advanced-MPLight
+    IMultiDQN: DARTS
+
+    # Parameters
+    init_time: H
+    sample_time: W
+    model_buffer_size: n
+    deviations: σ
+    fixed_buffer: Fixed
+    parameter_reset_freq: Reset
+    buffer_size: Buffer
+    action_set: Actions
+    fasttrac: Fast TRAC
+    crelu: CReLU
+    global_buffers: Global
+
+    blank_params:
+      IMultiDQN: ["criteria", "expert"]
+      ISAC: ["cl_method"]
+
+    relevant_params:
+      IDQN: [ "fasttrac", "crelu", "parameter_reset_freq", "buffer_size" ]
+      RLCD: [ "action_set" ]
+      ISAC: [ "cl_method" ]
+      IMultiDQN: [
+        "criteria",
+        ["criteria", "!std&!kstest&!oracle_vehicles", ["fallback"]],
+        ["criteria", "std", ["global_buffers", "expert", "init_time", "sample_time", "deviations", "model_buffer_size", "fixed_buffer"]],
+        ["criteria", "kstest", ["expert", "init_time", "sample_time", "p_value", "model_buffer_size", "fixed_buffer"]]
+      ]
+
+    # Values
+    text_values:
+        std: 'Std Dev'
+        kstest: 'K-S Test'

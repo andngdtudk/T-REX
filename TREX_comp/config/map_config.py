@@ -113,4 +113,181 @@ map_configs = {
         'end_time': 69000,
         'warmup': 0
     },
+    'kbh_red': {
+        'lights': [],
+        'net': 'environments/kbh_red/kbh_red_3.0.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_red_2': {
+        'lights': [],
+        'net': 'environments/kbh_red_2/kbh_red_3.1.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_red_3': {
+        'lights': [],
+        'net': 'environments/kbh_red_3/kbh_red_3.1.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_red_4': {
+        'lights': [],
+        'net': 'environments/kbh_red_4/kbh_red_3.1.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_red_5': {
+        'lights': [],
+        'net': 'environments/kbh_red_5/kbh_red_3.1.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_full': {
+        'lights': [],
+        'net': 'environments/kbh_full/kbh_4.0.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_full_multimodal': {
+        'lights': [],
+        'net': 'environments/kbh_full_multimodal/kbh_4.0.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_full_multimodal_mod': {
+        'lights': [],
+        'net': 'environments/kbh_full_multimodal_mod/kbh_4.0.1.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_red_420': {
+        'lights': [],
+        'net': 'environments/kbh_red_420/kbh_red_4.2.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_red_430': {
+        'lights': [],
+        'net': 'environments/kbh_red_430/kbh_red_4.3.0.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_single_432': {
+        'lights': [],
+        'net': 'environments/kbh_single_432/kbh_single_4.3.2.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_joined_432': {
+        'lights': [],
+        'net': 'environments/kbh_joined_432/kbh_joined_4.3.2.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_j1_442': {
+        'lights': [],
+        'net': 'environments/kbh_j1_442/kbh_j1_4.4.2.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 3600,
+        'warmup': 0
+    },
+    'kbh_j1_442m': {
+        'lights': [],
+        'net': 'environments/kbh_j1_442m/kbh_j1_4.4.2.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 5400,
+        'warmup': 0
+    },
+    'kbh_j9_442m': {
+        'lights': [],
+        'net': 'environments/kbh_j9_442m/kbh_j9_4.4.2.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 5400,
+        'warmup': 0
+    },
+    'kbh_c2_454m': {
+        'lights': ["J10", "J11", "J12", "J13", "cluster3106249630_3106249631_J60_J61_#5more"],
+        'net': 'environments/kbh_c2_454m/kbh_c2_4.5.4.sumocfg',
+        'route': None,
+        'step_length': 10,
+        'yellow_length': 3,
+        'step_ratio': 1,
+        'start_time': 0,
+        'end_time': 5400,
+        'warmup': 0
+    }
+
 }

@@ -1,4 +1,7 @@
 import numpy as np
+import os
+
+os.environ.setdefault('TF_ENABLE_ONEDNN_OPTS', '0')
 
 from TREX_comp.agents.agent import Agent, IndependentAgent
 from TREX_comp.config.signal_config import signal_configs
@@ -122,16 +125,27 @@ else:
 
             self.model = MA2CImplementation(n_s, n_a, n_w, n_f, total_step, model_config, name, sess)
 
-        def act(self, observation):
-            self.state = observation
+        def _align_observation(self, observation):
+            obs = np.asarray(observation, dtype=np.float32).reshape(-1)
+            target_size = int(self.model.n_s)
+            if obs.size < target_size:
+                obs = np.pad(obs, (0, target_size - obs.size), mode='constant')
+            elif obs.size > target_size:
+                obs = obs[:target_size]
+            return obs
 
-            policy, self.value = self.model.forward(observation, False)
+        def act(self, observation):
+            aligned_observation = self._align_observation(observation)
+            self.state = aligned_observation
+
+            policy, self.value = self.model.forward(aligned_observation, False)
             self.action = np.random.choice(np.arange(len(policy)), p=policy)
             self.fingerprint = np.array(policy)
 
             return self.action
 
         def observe(self, observation, reward, done, info):
+            aligned_observation = self._align_observation(observation)
             self.model.add_transition(self.state, self.action, reward, self.value, done)
             self.steps_done += 1
 
@@ -139,7 +153,7 @@ else:
                 if done:
                     R = 0
                 else:
-                    R = self.model.forward(observation, False, 'v')
+                    R = self.model.forward(aligned_observation, False, 'v')
                 self.model.backward(R)
 
             if done:

@@ -1,0 +1,216 @@
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1784134310.340055 1286592 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+WARNING:tensorflow:From /home/s243292/venvs/pmt/lib/python3.10/site-packages/tensorflow/python/compat/v2_compat.py:98: disable_resource_variables (from tensorflow.python.ops.resource_variables_toggle) is deprecated and will be removed in a future version.
+Instructions for updating:
+non-resource variables are not supported in the long term
+kbh_c2_454m /home/s243292/pmt/T-REX/environments/kbh_c2_454m/kbh_c2_4.5.4.sumocfg drq_mm2_delta wait_multimodal_delta_sclip
+ Retrying in 1 seconds
+***Starting server on port 43571 ***
+Loading net-file from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/kbh_c2_4.5.4.net.xml' ... done (34ms).
+Loading additional-files from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/vtypes.xml' ... done (0ms).
+Loading route-files incrementally from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/routes_car.rou.xml'
+Loading route-files incrementally from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/routes_bike.rou.xml'
+Loading route-files incrementally from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/routes_ped.rou.xml'
+Loading done.
+Simulation version v1_27_0+0246-77aedaaf8e3 started with time: 0.00.
+lights 5 ('J10', 'J11', 'J12', 'J13', 'cluster3106249630_3106249631_J60_J61_#5more')
+GENERATING CONFIG
+'J10': {
+'lane_sets':{'S-W': ['-4250845#2.169_1', '-4250845#2.169_2'], 'S-S': ['-4250845#2.169_3', '162093000#0_1'], 'S-E': ['162093000#0_2', '162093000#0_3', '-27432851#2_1'], 'W-N': ['-27432851#2_1', '-27432851#2_2'], 'W-W': [], 'W-S': [], 'N-E': [], 'N-N': [], 'N-W': [], 'E-S': [], 'E-E': [], 'E-N': []},
+'downstream':{'N': None, 'E': None, 'S': None, 'W': None}},
+[J10] derived 3 movements from phase green-signatures split by junction: {0: ((0, 1), '-4250845'), 1: ((1, 0), '162093000'), 2: ((1, 0), '-27432851')}
+[J10] movement -> inbound lanes: {0: ['-4250845#2.169_1', '-4250845#2.169_2', '-4250845#2.169_3'], 1: ['162093000#0_1', '162093000#0_2', '162093000#0_3'], 2: ['-27432851#2_1', '-27432851#2_2']}
+[J10] movement -> outbound lanes: {0: ['27432851#0_1', '-162093000#2_1', '27432851#0_2', '-162093000#2_2'], 1: ['4250845#0_1', '27432851#0_1', '4250845#0_2', '27432851#0_2'], 2: ['-162093000#2_1', '4250845#0_1', '-162093000#2_2', '4250845#0_2']}
+[J10] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+GENERATING CONFIG
+'J11': {
+'lane_sets':{'S-W': ['45394567#2.30_1'], 'S-S': ['45394567#2.30_1', '1082164221_1'], 'S-E': ['1082164221_1', '1082164221_2'], 'W-N': ['1082164221_2', '1297403296#0_1'], 'W-W': ['1297403296#0_1', '1081381423#0_1'], 'W-S': ['1081381423#0_1', '1081381423#0_2'], 'N-E': [], 'N-N': [], 'N-W': [], 'E-S': [], 'E-E': [], 'E-N': []},
+'downstream':{'N': None, 'E': None, 'S': None, 'W': None}},
+[J11] derived 5 movements from phase green-signatures split by junction: {0: ((0, 0, 1), '45394567'), 1: ((1, 1, 0), '1082164221_1'), 2: ((1, 1, 0), '1082164221_2'), 3: ((0, 0, 1), '1297403296'), 4: ((1, 1, 0), '1081381423')}
+[J11] movement -> inbound lanes: {0: ['45394567#2.30_1'], 1: ['1082164221_1'], 2: ['1082164221_2'], 3: ['1297403296#0_1'], 4: ['1081381423#0_1', '1081381423#0_2']}
+[J11] movement -> outbound lanes: {0: ['36244295#1_1', '36244295#1_2', '-1297403296#0_1', '1297403290#1_1', '1297403290#1_2'], 1: ['-45394567#3_1', '36244295#1_1', '-1297403296#0_1'], 2: ['-45394567#3_1', '36244295#1_2'], 3: ['1297403290#1_1', '-45394567#3_1', '36244295#1_1'], 4: ['-1297403296#0_1', '1297403290#1_1', '-45394567#3_1', '1297403290#1_2']}
+[J11] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+GENERATING CONFIG
+'J12': {
+'lane_sets':{'S-W': ['218228183#0_1', '218228183#0_2'], 'S-S': ['218228183#0_2', '218228183#0_3', '218228183#0_4'], 'S-E': ['218228183#0_5', '27203877#0_1'], 'W-N': ['27203877#0_1', '27203877#0_2'], 'W-W': ['27203877#0_2', '27203877#0_3', '27280403#0_1'], 'W-S': ['27280403#0_1', '27280403#0_2'], 'N-E': ['27280403#0_3', '27280403#0_4'], 'N-N': ['27203882#0_1'], 'N-W': ['27203882#0_1', '27203882#0_2', '27203882#0_3'], 'E-S': ['27203882#0_4'], 'E-E': [], 'E-N': []},
+'downstream':{'N': None, 'E': None, 'S': None, 'W': None}},
+[J12] derived 10 movements from phase green-signatures split by junction: {0: ((0, 1, 0, 0), '218228183'), 1: ((1, 1, 0, 0), '218228183'), 2: ((0, 0, 1, 1), '27203877'), 3: ((0, 0, 1, 0), '27203877'), 4: ((1, 0, 1, 0), '27203877'), 5: ((0, 0, 0, 1), '27203877'), 6: ((1, 0, 0, 0), '27280403'), 7: ((0, 0, 1, 1), '27203882'), 8: ((0, 0, 1, 0), '27203882'), 9: ((0, 0, 0, 1), '27203882')}
+[J12] movement -> inbound lanes: {0: ['218228183#0_1'], 1: ['218228183#0_2', '218228183#0_3', '218228183#0_4', '218228183#0_5'], 2: ['27203877#0_1'], 3: ['27203877#0_1', '27203877#0_2'], 4: ['27203877#0_1'], 5: ['27203877#0_3'], 6: ['27280403#0_1', '27280403#0_2', '27280403#0_3', '27280403#0_4'], 7: ['27203882#0_1', '27203882#0_2'], 8: ['27203882#0_1', '27203882#0_3'], 9: ['27203882#0_4']}
+[J12] movement -> outbound lanes: {0: ['27203880#1_1'], 1: ['164695753#1_0', '44280391#3_0', '218228181#1_1', '164695753#1_1', '164695753#1_2', '218228181#1_2'], 2: ['164695754#1_1'], 3: ['27203880#1_1', '164695753#1_0', '164695754#1_2', '27203880#1_2'], 4: ['44280391#3_0'], 5: ['164695753#1_2'], 6: ['218228181#1_1', '164695754#1_1', '27203880#1_1', '218228181#1_2', '164695754#1_2', '164695754#1_3', '164695754#1_4'], 7: ['164695753#1_0', '164695753#1_1'], 8: ['44280391#3_0', '218228181#1_1', '164695754#1_1', '218228181#1_2'], 9: ['164695754#1_2', '164695754#1_3', '164695754#1_4']}
+[J12] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+GENERATING CONFIG
+'J13': {
+'lane_sets':{'S-W': ['48598652#0_1'], 'S-S': ['48598652#0_2', '48598652#0_3', '48598652#0_4'], 'S-E': ['-1355686483_1'], 'W-N': ['-1355686483_2'], 'W-W': ['1075746753#0_1'], 'W-S': ['1075746753#0_2', '1075746753#0_3'], 'N-E': ['47739048_1'], 'N-N': ['47739048_2'], 'N-W': [], 'E-S': [], 'E-E': [], 'E-N': []},
+'downstream':{'N': None, 'E': None, 'S': None, 'W': None}},
+[J13] derived 14 movements from phase green-signatures split by junction: {0: ((1, 1, 0), '48598652'), 1: ((1, 0, 0), '48598652'), 2: ((0, 1, 0), '48598652'), 3: ((0, 1, 1), '-1355686483_1'), 4: ((0, 0, 1), '-1355686483_1'), 5: ((0, 1, 1), '-1355686483_2'), 6: ((0, 0, 1), '-1355686483_2'), 7: ((1, 1, 0), '1075746753'), 8: ((1, 0, 0), '1075746753'), 9: ((0, 1, 0), '1075746753'), 10: ((0, 1, 1), '47739048_1'), 11: ((0, 0, 1), '47739048_1'), 12: ((0, 1, 1), '47739048_2'), 13: ((0, 0, 1), '47739048_2')}
+[J13] movement -> inbound lanes: {0: ['48598652#0_1', '48598652#0_2'], 1: ['48598652#0_1', '48598652#0_3'], 2: ['48598652#0_4'], 3: ['-1355686483_1'], 4: ['-1355686483_1'], 5: ['-1355686483_2'], 6: ['-1355686483_2'], 7: ['1075746753#0_1', '1075746753#0_2'], 8: ['1075746753#0_1', '1075746753#0_2'], 9: ['1075746753#0_3'], 10: ['47739048_1'], 11: ['47739048_1'], 12: ['47739048_2'], 13: ['47739048_2']}
+[J13] movement -> outbound lanes: {0: ['-47739048_1', '-47739048_2'], 1: ['209692820#1_1', '1355686483_1', '209692820#1_2'], 2: ['1355686483_2'], 3: ['1355686472#1_1'], 4: ['-47739048_1', '209692820#1_1'], 5: ['1355686472#1_2'], 6: ['-47739048_2', '209692820#1_2'], 7: ['1355686483_1', '1355686483_2'], 8: ['1355686472#1_1', '-47739048_1', '1355686472#1_2'], 9: ['-47739048_2'], 10: ['209692820#1_1'], 11: ['1355686483_1', '1355686472#1_1'], 12: ['209692820#1_2'], 13: ['1355686483_2', '1355686472#1_2']}
+[J13] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+GENERATING CONFIG
+'cluster3106249630_3106249631_J60_J61_#5more': {
+'lane_sets':{'S-W': ['747921366#1_1'], 'S-S': ['747921366#1_2', '12645062#2_0'], 'S-E': ['12645062#2_0', '305430250#3_1'], 'W-N': ['305430250#3_1', '305430250#3_2'], 'W-W': ['305430250#3_2', '36523272#3_1'], 'W-S': ['36523272#3_1', '36523272#3_2'], 'N-E': [], 'N-N': [], 'N-W': [], 'E-S': [], 'E-E': [], 'E-N': []},
+'downstream':{'N': None, 'E': None, 'S': None, 'W': None}},
+[cluster3106249630_3106249631_J60_J61_#5more] derived 13 movements from phase green-signatures split by junction: {0: ((1, 1, 0, 1), '747921366'), 1: ((1, 0, 0, 0), '747921366'), 2: ((0, 0, 0, 1), '747921366'), 3: ((1, 1, 1, 1), '12645062'), 4: ((0, 0, 1, 0), '12645062'), 5: ((1, 1, 1, 1), '305430250'), 6: ((1, 1, 0, 1), '305430250'), 7: ((1, 0, 0, 1), '305430250'), 8: ((0, 0, 0, 1), '305430250'), 9: ((0, 1, 1, 1), '36523272'), 10: ((0, 0, 1, 0), '36523272'), 11: ((0, 1, 0, 1), '36523272'), 12: ((0, 1, 0, 0), '36523272')}
+[cluster3106249630_3106249631_J60_J61_#5more] movement -> inbound lanes: {0: ['747921366#1_1'], 1: ['747921366#1_1', '747921366#1_2'], 2: ['747921366#1_2'], 3: ['12645062#2_0'], 4: ['12645062#2_0'], 5: ['305430250#3_1'], 6: ['305430250#3_1'], 7: ['305430250#3_1', '305430250#3_2'], 8: ['305430250#3_2'], 9: ['36523272#3_1'], 10: ['36523272#3_1'], 11: ['36523272#3_2'], 12: ['36523272#3_2']}
+[cluster3106249630_3106249631_J60_J61_#5more] movement -> outbound lanes: {0: ['77628809#1_1'], 1: ['-305430250#4.1_1', '12645062#1.9_0', '-305430250#4.1_2'], 2: ['77628809#1_2'], 3: ['-76815388#1.2_1'], 4: ['77628809#1_1', '-305430250#4.1_1'], 5: ['12645062#1.9_0'], 6: ['-76815388#1.2_1'], 7: ['77628809#1_1', '-76815388#1.2_2'], 8: ['77628809#1_2'], 9: ['-305430250#4.1_1'], 10: ['12645062#1.9_0', '-76815388#1.2_1'], 11: ['-305430250#4.1_2'], 12: ['-76815388#1.2_2']}
+[cluster3106249630_3106249631_J60_J61_#5more] *** movement 3 is an ALWAYS-GREEN movement on junction '12645062' (green in every one of this signal's 4 phases) — lanes: ['12645062#2_0']. This is now isolated to lanes on junction '12645062' only (no longer merged with always-green lanes on other junctions). VERIFY this is the movement set you expect before trusting any phase_pairs entries that reference index 3.
+[cluster3106249630_3106249631_J60_J61_#5more] *** movement 5 is an ALWAYS-GREEN movement on junction '305430250' (green in every one of this signal's 4 phases) — lanes: ['305430250#3_1']. This is now isolated to lanes on junction '305430250' only (no longer merged with always-green lanes on other junctions). VERIFY this is the movement set you expect before trusting any phase_pairs entries that reference index 5.
+[cluster3106249630_3106249631_J60_J61_#5more] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+GENERATED MAP CONTROL CONFIG
+'kbh_c2_454m': {
+'phase_pairs':[[1, 2], [0, 0], [4, 1], [4, 1], [0, 3], [1, 6], [1, 0], [3, 7], [7, 2], [0, 1], [0, 7], [3, 4], [1, 7], [0, 6], [4, 9], [7, 0]],
+'valid_acts':{'J10': {0: 0, 1: 1}, 'J11': {2: 0, 3: 1, 4: 2}, 'J12': {5: 0, 6: 1, 7: 2, 8: 3}, 'J13': {9: 0, 10: 1, 11: 2}, 'cluster3106249630_3106249631_J60_J61_#5more': {12: 0, 13: 1, 14: 2, 15: 3}},
+'num_movements':{'J10': 3, 'J11': 5, 'J12': 10, 'J13': 14, 'cluster3106249630_3106249631_J60_J61_#5more': 13},
+},
+Generated signal config file: /home/s243292/pmt/T-REX/TREX_comp/config/generated/kbh_c2_454m_signal_config.py
+Step #0.00 (0ms ?*RT. ?UPS, TraCI: 71ms, vehicles TOT 0 ACT 0 BUF 0)                     
+Simulation ended at time: 0.00.
+Reason: TraCI requested termination.
+Performance:
+ Duration: 0.09s
+ TraCI-Duration: 0.00s
+ Real time factor: 0
+ UPS: 0.000000
+Vehicles:
+ Inserted: 0 (Loaded: 2)
+ Running: 0
+ Waiting: 0
+Persons:
+ Inserted: 0 (Loaded: 1)
+ Running: 0
+Connection ID IDQN_MM2-tr0-kbh_c2_454m-5-drq_mm2_delta-wait_multimodal_delta_sclip
+DEBUG obs_act shapes: {'J10': [(1, 8, 9), 2], 'J11': [(1, 6, 9), 3], 'J12': [(1, 16, 9), 4], 'J13': [(1, 11, 9), 3], 'cluster3106249630_3106249631_J60_J61_#5more': [(1, 7, 9), 4]}
+Using GPU: NVIDIA GeForce RTX 3080 Ti
+Using GPU: NVIDIA GeForce RTX 3080 Ti
+DEBUG: USING INDIVIDUAL EXPLORER WITH DECAY STEPS 43200
+Using GPU: NVIDIA GeForce RTX 3080 Ti
+DEBUG: USING INDIVIDUAL EXPLORER WITH DECAY STEPS 43200
+Using GPU: NVIDIA GeForce RTX 3080 Ti
+DEBUG: USING INDIVIDUAL EXPLORER WITH DECAY STEPS 43200
+Using GPU: NVIDIA GeForce RTX 3080 Ti
+DEBUG: USING INDIVIDUAL EXPLORER WITH DECAY STEPS 43200
+Using GPU: NVIDIA GeForce RTX 3080 Ti
+DEBUG: USING INDIVIDUAL EXPLORER WITH DECAY STEPS 43200
+Training under base condition...
+Episode 1/100 started (base train).
+ Retrying in 1 seconds
+***Starting server on port 34481 ***
+Loading net-file from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/kbh_c2_4.5.4.net.xml' ... done (34ms).
+Loading additional-files from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/vtypes.xml' ... done (0ms).
+Loading route-files incrementally from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/routes_car.rou.xml'
+Loading route-files incrementally from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/routes_bike.rou.xml'
+Loading route-files incrementally from '/home/s243292/pmt/T-REX/environments/kbh_c2_454m/routes_ped.rou.xml'
+Loading done.
+Simulation version v1_27_0+0246-77aedaaf8e3 started with time: 0.00.
+[DEBUG] about to construct Signal J10
+[J10] derived 3 movements from phase green-signatures split by junction: {0: ((0, 1), '-4250845'), 1: ((1, 0), '162093000'), 2: ((1, 0), '-27432851')}
+[J10] movement -> inbound lanes: {0: ['-4250845#2.169_1', '-4250845#2.169_2', '-4250845#2.169_3'], 1: ['162093000#0_1', '162093000#0_2', '162093000#0_3'], 2: ['-27432851#2_1', '-27432851#2_2']}
+[J10] movement -> outbound lanes: {0: ['27432851#0_1', '-162093000#2_1', '27432851#0_2', '-162093000#2_2'], 1: ['4250845#0_1', '27432851#0_1', '4250845#0_2', '27432851#0_2'], 2: ['-162093000#2_1', '4250845#0_1', '-162093000#2_2', '4250845#0_2']}
+[J10] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+[DEBUG] constructed Signal J10
+[DEBUG] about to construct Signal J11
+[J11] derived 5 movements from phase green-signatures split by junction: {0: ((0, 0, 1), '45394567'), 1: ((1, 1, 0), '1082164221_1'), 2: ((1, 1, 0), '1082164221_2'), 3: ((0, 0, 1), '1297403296'), 4: ((1, 1, 0), '1081381423')}
+[J11] movement -> inbound lanes: {0: ['45394567#2.30_1'], 1: ['1082164221_1'], 2: ['1082164221_2'], 3: ['1297403296#0_1'], 4: ['1081381423#0_1', '1081381423#0_2']}
+[J11] movement -> outbound lanes: {0: ['36244295#1_1', '36244295#1_2', '-1297403296#0_1', '1297403290#1_1', '1297403290#1_2'], 1: ['-45394567#3_1', '36244295#1_1', '-1297403296#0_1'], 2: ['-45394567#3_1', '36244295#1_2'], 3: ['1297403290#1_1', '-45394567#3_1', '36244295#1_1'], 4: ['-1297403296#0_1', '1297403290#1_1', '-45394567#3_1', '1297403290#1_2']}
+[J11] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+[DEBUG] constructed Signal J11
+[DEBUG] about to construct Signal J12
+[J12] derived 10 movements from phase green-signatures split by junction: {0: ((0, 1, 0, 0), '218228183'), 1: ((1, 1, 0, 0), '218228183'), 2: ((0, 0, 1, 1), '27203877'), 3: ((0, 0, 1, 0), '27203877'), 4: ((1, 0, 1, 0), '27203877'), 5: ((0, 0, 0, 1), '27203877'), 6: ((1, 0, 0, 0), '27280403'), 7: ((0, 0, 1, 1), '27203882'), 8: ((0, 0, 1, 0), '27203882'), 9: ((0, 0, 0, 1), '27203882')}
+[J12] movement -> inbound lanes: {0: ['218228183#0_1'], 1: ['218228183#0_2', '218228183#0_3', '218228183#0_4', '218228183#0_5'], 2: ['27203877#0_1'], 3: ['27203877#0_1', '27203877#0_2'], 4: ['27203877#0_1'], 5: ['27203877#0_3'], 6: ['27280403#0_1', '27280403#0_2', '27280403#0_3', '27280403#0_4'], 7: ['27203882#0_1', '27203882#0_2'], 8: ['27203882#0_1', '27203882#0_3'], 9: ['27203882#0_4']}
+[J12] movement -> outbound lanes: {0: ['27203880#1_1'], 1: ['164695753#1_0', '44280391#3_0', '218228181#1_1', '164695753#1_1', '164695753#1_2', '218228181#1_2'], 2: ['164695754#1_1'], 3: ['27203880#1_1', '164695753#1_0', '164695754#1_2', '27203880#1_2'], 4: ['44280391#3_0'], 5: ['164695753#1_2'], 6: ['218228181#1_1', '164695754#1_1', '27203880#1_1', '218228181#1_2', '164695754#1_2', '164695754#1_3', '164695754#1_4'], 7: ['164695753#1_0', '164695753#1_1'], 8: ['44280391#3_0', '218228181#1_1', '164695754#1_1', '218228181#1_2'], 9: ['164695754#1_2', '164695754#1_3', '164695754#1_4']}
+[J12] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+[DEBUG] constructed Signal J12
+[DEBUG] about to construct Signal J13
+[J13] derived 14 movements from phase green-signatures split by junction: {0: ((1, 1, 0), '48598652'), 1: ((1, 0, 0), '48598652'), 2: ((0, 1, 0), '48598652'), 3: ((0, 1, 1), '-1355686483_1'), 4: ((0, 0, 1), '-1355686483_1'), 5: ((0, 1, 1), '-1355686483_2'), 6: ((0, 0, 1), '-1355686483_2'), 7: ((1, 1, 0), '1075746753'), 8: ((1, 0, 0), '1075746753'), 9: ((0, 1, 0), '1075746753'), 10: ((0, 1, 1), '47739048_1'), 11: ((0, 0, 1), '47739048_1'), 12: ((0, 1, 1), '47739048_2'), 13: ((0, 0, 1), '47739048_2')}
+[J13] movement -> inbound lanes: {0: ['48598652#0_1', '48598652#0_2'], 1: ['48598652#0_1', '48598652#0_3'], 2: ['48598652#0_4'], 3: ['-1355686483_1'], 4: ['-1355686483_1'], 5: ['-1355686483_2'], 6: ['-1355686483_2'], 7: ['1075746753#0_1', '1075746753#0_2'], 8: ['1075746753#0_1', '1075746753#0_2'], 9: ['1075746753#0_3'], 10: ['47739048_1'], 11: ['47739048_1'], 12: ['47739048_2'], 13: ['47739048_2']}
+[J13] movement -> outbound lanes: {0: ['-47739048_1', '-47739048_2'], 1: ['209692820#1_1', '1355686483_1', '209692820#1_2'], 2: ['1355686483_2'], 3: ['1355686472#1_1'], 4: ['-47739048_1', '209692820#1_1'], 5: ['1355686472#1_2'], 6: ['-47739048_2', '209692820#1_2'], 7: ['1355686483_1', '1355686483_2'], 8: ['1355686472#1_1', '-47739048_1', '1355686472#1_2'], 9: ['-47739048_2'], 10: ['209692820#1_1'], 11: ['1355686483_1', '1355686472#1_1'], 12: ['209692820#1_2'], 13: ['1355686483_2', '1355686472#1_2']}
+[J13] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+[DEBUG] constructed Signal J13
+[DEBUG] about to construct Signal cluster3106249630_3106249631_J60_J61_#5more
+[cluster3106249630_3106249631_J60_J61_#5more] derived 13 movements from phase green-signatures split by junction: {0: ((1, 1, 0, 1), '747921366'), 1: ((1, 0, 0, 0), '747921366'), 2: ((0, 0, 0, 1), '747921366'), 3: ((1, 1, 1, 1), '12645062'), 4: ((0, 0, 1, 0), '12645062'), 5: ((1, 1, 1, 1), '305430250'), 6: ((1, 1, 0, 1), '305430250'), 7: ((1, 0, 0, 1), '305430250'), 8: ((0, 0, 0, 1), '305430250'), 9: ((0, 1, 1, 1), '36523272'), 10: ((0, 0, 1, 0), '36523272'), 11: ((0, 1, 0, 1), '36523272'), 12: ((0, 1, 0, 0), '36523272')}
+[cluster3106249630_3106249631_J60_J61_#5more] movement -> inbound lanes: {0: ['747921366#1_1'], 1: ['747921366#1_1', '747921366#1_2'], 2: ['747921366#1_2'], 3: ['12645062#2_0'], 4: ['12645062#2_0'], 5: ['305430250#3_1'], 6: ['305430250#3_1'], 7: ['305430250#3_1', '305430250#3_2'], 8: ['305430250#3_2'], 9: ['36523272#3_1'], 10: ['36523272#3_1'], 11: ['36523272#3_2'], 12: ['36523272#3_2']}
+[cluster3106249630_3106249631_J60_J61_#5more] movement -> outbound lanes: {0: ['77628809#1_1'], 1: ['-305430250#4.1_1', '12645062#1.9_0', '-305430250#4.1_2'], 2: ['77628809#1_2'], 3: ['-76815388#1.2_1'], 4: ['77628809#1_1', '-305430250#4.1_1'], 5: ['12645062#1.9_0'], 6: ['-76815388#1.2_1'], 7: ['77628809#1_1', '-76815388#1.2_2'], 8: ['77628809#1_2'], 9: ['-305430250#4.1_1'], 10: ['12645062#1.9_0', '-76815388#1.2_1'], 11: ['-305430250#4.1_2'], 12: ['-76815388#1.2_2']}
+[cluster3106249630_3106249631_J60_J61_#5more] *** movement 3 is an ALWAYS-GREEN movement on junction '12645062' (green in every one of this signal's 4 phases) — lanes: ['12645062#2_0']. This is now isolated to lanes on junction '12645062' only (no longer merged with always-green lanes on other junctions). VERIFY this is the movement set you expect before trusting any phase_pairs entries that reference index 3.
+[cluster3106249630_3106249631_J60_J61_#5more] *** movement 5 is an ALWAYS-GREEN movement on junction '305430250' (green in every one of this signal's 4 phases) — lanes: ['305430250#3_1']. This is now isolated to lanes on junction '305430250' only (no longer merged with always-green lanes on other junctions). VERIFY this is the movement set you expect before trusting any phase_pairs entries that reference index 5.
+[cluster3106249630_3106249631_J60_J61_#5more] >>> movement indices may have CHANGED from a previous pure-signature run. Regenerate/re-verify phase_pairs against this printed mapping before training — do not assume old indices (e.g. a previous 'movement 8') still refer to the same lanes.
+[DEBUG] constructed Signal cluster3106249630_3106249631_J60_J61_#5more
+Simulation ended at time: 0.00.
+Reason: TraCI requested termination.
+Performance:
+ Duration: 0.04s
+ TraCI-Duration: 0.00s
+ Real time factor: 0
+ UPS: 0.000000
+Vehicles:
+ Inserted: 0 (Loaded: 2)
+ Running: 0
+ Waiting: 0
+Persons:
+ Inserted: 0 (Loaded: 1)
+ Running: 0
+Car results
+Car simulation data:
+ Inserted / Loaded: 0 / 0
+ Running: 0
+ Waiting: 0
+ Teleports / Collisions: 0 / 0
+ Emergency Stops: 0
+ Emergency Brakings: 0
+ Never Arrived (arrival=-1): 0
+Car statistics (avg of 0):
+ RouteLength: N/A
+ Speed: N/A
+ Duration: N/A
+ WaitingTime: N/A
+ TimeLoss: N/A
+ DepartDelay: N/A
+Bike results
+Bike simulation data:
+ Inserted / Loaded: 0 / 0
+ Running: 0
+ Waiting: 0
+ Teleports / Collisions: 0 / 0
+ Emergency Stops: 0
+ Emergency Brakings: 0
+ Never Arrived (arrival=-1): 0
+Bike statistics (avg of 0):
+ RouteLength: N/A
+ Speed: N/A
+ Duration: N/A
+ WaitingTime: N/A
+ TimeLoss: N/A
+ DepartDelay: N/A
+Pedestrian results
+Pedestrian simulation data:
+ Inserted / Loaded: 1 / N/A
+ Running: 0
+ Waiting: 0
+ Never Arrived (arrival=-1): 1
+Pedestrian statistics (avg of 0):
+ RouteLength: N/A
+ Speed: N/A
+ Duration: N/A
+ WaitingTime: N/A
+ TimeLoss: N/A
+ DepartDelay: N/A
+saving /home/s243292/pmt/T-REX/results/IDQN_MM2-tr0-kbh_c2_454m-5-drq_mm2_delta-wait_multimodal_delta_sclip/metrics_1.csv
+Trial 0 completed for IDQN_MM2 on kbh_c2_454m.
+Traceback (most recent call last):
+  File "/home/s243292/pmt/T-REX/main.py", line 686, in <module>
+    main()
+  File "/home/s243292/pmt/T-REX/main.py", line 151, in main
+    run_trial(args, args.tr, run_idx=run_idx if repeats > 1 else None)
+  File "/home/s243292/pmt/T-REX/main.py", line 319, in run_trial
+    run_base_scenario(env, agent, args, agt_config, log_state_csv, mm_logger)
+  File "/home/s243292/pmt/T-REX/main.py", line 353, in run_base_scenario
+    stats = run_episode(env, agent, episode_index=ep + 1, log_state_csv=log_state_csv, mm_logger=mm_logger, episode_num=ep + 1)
+  File "/home/s243292/pmt/T-REX/main.py", line 525, in run_episode
+    obs = env.reset()
+  File "/home/s243292/pmt/T-REX/base_env.py", line 205, in reset
+    print(f"[DEBUG] about to observe {ts.id}", flush=True)
+AttributeError: 'str' object has no attribute 'id'

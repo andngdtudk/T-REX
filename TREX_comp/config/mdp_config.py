@@ -103,6 +103,23 @@ mdp_configs = {
                 'bot_mgr': ['top_mgr']
             }
         },
+        "kbh_c2_454m": {
+            'coef': 0.4,
+            'coop_gamma': 0.9,
+            'clip_wave': 4.0,
+            'clip_wait': 4.0,
+            'norm_wave': 5.0,
+            'norm_wait': 100.0,
+            'alpha': 0.75,
+            'management': {
+                'top_mgr': ['J10', 'J11', 'J12'],
+                "bot_mgr": ['J13', 'cluster3106249630_3106249631_J60_J61_#5more']
+            },
+            'management_neighbors': {
+                'top_mgr': ["bot_mgr"],
+                "bot_mgr": ["top_mgr"]
+            }
+        }
     },
     'FMA2C': {
         'grid4x4': {
@@ -251,6 +268,23 @@ mdp_configs = {
                 'top_mgr': []
             }
         },
+        "kbh_c2_454m": {
+            'coef': 0.4,
+            'coop_gamma': 0.9,
+            'clip_wave': 4.0,
+            'clip_wait': 4.0,
+            'norm_wave': 5.0,
+            'norm_wait': 100.0,
+            'alpha': 0.75,
+            'management': {
+                'top_mgr': ['J10', 'J11', 'J12'],
+                "bot_mgr": ['J13', 'cluster3106249630_3106249631_J60_J61_#5more']
+            },
+            'management_neighbors': {
+                'top_mgr': ["bot_mgr"],
+                "bot_mgr": ["top_mgr"]
+            }
+        }
     },
     'FMA2CVAL': {
         'grid4x4': {
@@ -399,5 +433,57 @@ mdp_configs = {
                 'top_mgr': []
             }
         },
-    }
+        "kbh_c2_454m": {
+            'coef': 0.4,
+            'coop_gamma': 0.9,
+            'clip_wave': 4.0,
+            'clip_wait': 4.0,
+            'norm_wave': 5.0,
+            'norm_wait': 100.0,
+            'alpha': 0.75,
+            'management': {
+                'top_mgr': ['J10', 'J11', 'J12'],
+                "bot_mgr": ['J13', 'cluster3106249630_3106249631_J60_J61_#5more']
+            },
+            'management_neighbors': {
+                'top_mgr': ["bot_mgr"],
+                "bot_mgr": ["top_mgr"]
+            }
+        }
+    },
+    'IDQN_MM2': {
+        'kbh_j1_442m': {
+            'car_wait_weight': 1.0,
+            'bike_wait_weight': 0.7683, # was 1, then kept 1, was 74% of bike signal, then 0.3225 but still too much. 0.7683 was nice
+            'ped_wait_weight': 114.603, # was 1, was only .9% of reward signal, then 6.6864, then 99.7661, 114.603 was nice
+            'norm_wait': 540.5, # was 224, 443.1 after mm but with new weights needs to be higher 1717.5, then 1413.5, with collisions solver, 540.5 nice
+            'clip_wait': 3.0,
+        },
+        'kbh_j9_442m': {
+            'car_wait_weight': 1.0,
+            'bike_wait_weight': 0.1093, # was 1, then kept 1, was 74% of bike signal, then 0.3225 but still too much
+            'ped_wait_weight': 0.9332, # was 1, was only .9% of reward signal, then 6.6864, then 99.7661
+            'norm_wait':740.5, # was 224, 443.1 after mm but with new weights needs to be higher 1717.5, then 1413.5, with collisions solver, 
+            'clip_wait': 3.0,
+        },
+        'kbh_c2_454m': {
+            'car_wait_weight': 1.0,
+            'bike_wait_weight': 1, # was 1,
+            'ped_wait_weight': 1, # was 1,
+            'norm_wait': 540.5, # was 224, 4
+            'clip_wait': 3.0,
+        },
+    },
+    "MPLight_MM": {
+        'kbh_j1_442m': {
+            "W_BIKE": 2.267, # was 0.83, then 0.92, then 0.82
+            "W_PED": 3.091, # was 8.93, then 7.99, then 7.49
+            "PED_NORM": 18 # was 13, then 15
+        },
+        'kbh_c2_454m': {
+            "W_BIKE": 1, # was 1
+            "W_PED": 1, # was 1
+            "PED_NORM": 18 # was 13, then 15
+        },
+    },
 }
