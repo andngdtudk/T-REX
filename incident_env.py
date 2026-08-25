@@ -194,7 +194,7 @@ class IncidentEnv(gym.Env):
         self.sumo_cmd += [
             '--additional-files', self.additional,
             '--random',
-            '--time-to-teleport', '-1',
+            # '--time-to-teleport', '-1',
             '--tripinfo-output', os.path.join(self.log_dir, self.connection_name, f'tripinfo_{self.run}.xml'),
             '--tripinfo-output.write-unfinished',
             '--no-step-log', 'True',

@@ -26,10 +26,10 @@ class Initializer():
 
     def __init__(self, map_name, run_num, scenario_folder, warm_up_time, end_time=3600, is_random=True, level=2, pre_seed=None):
         # Currently hardcoded values
-        # self.slow_zone = 50
-        # self.lc_zone = 20
-        # self.lc_prob_zone = 70 #170
-        self.slow_zone_speed = 2.2 # m/s equivalent to 8 km/h, 5 mph
+        self.slow_zone = 50
+        self.lc_zone = 20
+        self.lc_prob_zone = 70 #170
+        self.slow_zone_speed = 1.39 # 13.8 is 50 km/h should work for highway situations.
 
         self.run_num = run_num
         self.is_incident = False
@@ -97,8 +97,9 @@ class Initializer():
         self.random_duration()
         self.is_incident = True
 
-        # print('Incident settings:')
-        # print(f'Incident happens at edge {self.edge} at time {self.start_time} lasting for {self.duration_time} seconds')
+        print('Incident settings:')
+        print(f'Incident happens at edge {self.edge} at time {self.start_time} lasting for {self.duration_time} seconds, '
+              f'lanes={self.lanes}, pos={self.pos}, random_seed={self.random_seed}')
     
     def load_edge_probability(self, weight_file_name):
         '''
@@ -130,6 +131,18 @@ class Initializer():
             and not any(sub in edge for sub in ['right', 'left', 'bottom', 'top'])  # Exclude incomplete edges
             and len(self.net.getEdge(edge).getOutgoing().keys()) > 0  # Exclude dead-end edges
         ]
+
+        # # Ensure there are valid edges available
+        # assert valid_edges, f"No valid edges found in the network. Check edge list: {object_list}"
+
+        # for edge in valid_edges:
+        #     edge_i_obj = self.net.getEdge(edge)
+        #     downstream_edges_i_obj = list(edge_i_obj.getOutgoing().keys())
+        #     downstream_edges_i = [edge_obj.getID() for edge_obj in downstream_edges_i_obj]
+        #     if len(downstream_edges_i) == 0:
+        #         valid_edges.remove(edge)
+
+        # edge_list = [edge for edge in object_list if not edge.startswith(':')]
         
         # Get the corresponding probabilities (ratios) for the edges
         probabilities = [self.edge_probabilities.get(edge, 0) for edge in valid_edges]
@@ -162,6 +175,9 @@ class Initializer():
             and len(self.net.getEdge(edge).getOutgoing().keys()) > 0  # Exclude dead-end edges
         ]
 
+
+        
+
         # Ensure there are valid edges available
         assert valid_edges, f"No valid edges found in the network. Check edge list: {object_list}"
 
@@ -176,7 +192,6 @@ class Initializer():
         # Randomly select a valid edge
         self.edge = np.random.choice(valid_edges)
 
-        
         
 
     def random_lanes(self):
@@ -239,6 +254,26 @@ class Initializer():
         # print(f'Incident duration: {self.duration_time} seconds')
         return
     
+    def to_dict(self):
+        def to_py(x):
+            if isinstance(x, (np.integer, np.floating)):
+                return x.item()
+            return x
+
+        return {
+            'map_name': self.map_name,
+            'run_num': to_py(self.run_num),
+            'scenario_folder': self.scenario_folder,
+            'warm_up_time': to_py(self.warm_up_time),
+            'end_time': to_py(self.end_time),
+            'random_seed': to_py(self.random_seed),
+            'edge': self.edge,
+            'lanes': self.lanes,
+            'pos': to_py(self.pos),
+            'start_time': to_py(self.start_time),
+            'duration_time': to_py(self.duration_time),
+            'is_incident': self.is_incident
+        }
     # def save_incident_information(self, folder_path):
     #     if self.is_incident:
     #         json_str = json.dumps(self.__dict__, default=np_encoder)
@@ -291,6 +326,8 @@ class Deployment():
         self.min_lane_change_interval = 50
         self.min_lane_change_interval_upstream = 100
 
+        self.rng = np.random.default_rng(initializer.random_seed)
+
 
         # ICM parameters
         self.awareness_params = {'pi_news': 0.7, 'pi_on': 0.5, 'T_broadcast': 5, 
@@ -309,11 +346,20 @@ class Deployment():
         # net = sumolib.net.readNet(net_path)
         # i_edge_obj = net.getEdge(self.incident_edge)
 
-        # Keep track of the vehicles that are adjusted their speed and lane change 
+        # Keep track of the vehicles that are adjusted their speed and lane change
         self.adjusted_vehicles = set()
 
         self.processed_vehicles = set()
         self.vehicle_ssd = dict()
+
+        # Vehicles currently exempted from SUMO's global teleport timeout
+        # because they're genuinely queued behind THIS incident (see
+        # manage_incident_queue_teleport_exemption). Maps
+        # vehID -> original vType, so it can be restored once the vehicle
+        # is no longer blocked. Only vehicles identified as blocked by this
+        # specific incident are ever added here -- this must stay
+        # localized, not become a network-wide exemption.
+        self.teleport_exempt_vehicles = {}
 
         # setting for ICM
         self.awareness_vehicles = set()
@@ -325,13 +371,96 @@ class Deployment():
         '''
         Check if incident should be introduced in this step
         '''
+
         self.speed_adjustment(step)
         # if self.pos < np.max([self.slow_zone, self.lc_prob_zone]):
         #     self.speed_adjustment_upstream(step)
         self.triggering(step)
+        self.manage_incident_queue_teleport_exemption(step)
         # self.simulate_accident_based_on_blocked_lanes(step)
         if reroute:
             self.ICM(step)
+
+
+    # def simulate_accident_with_blocking(self, step):
+    #     """
+    #     Simulates an accident between two vehicles and keeps them as static lane blockers.
+
+    #     Args:
+    #         step (int): Current simulation step.
+    #         start_step (int): Step at which the accident should occur.
+    #         duration_steps (int): Duration for which the lane should remain blocked.
+    #     """
+    #     collision_distance = 10  # Distance threshold for collision
+    #     speed_increase = 50
+    #     # Store the involved vehicles to ensure only they are stopped
+    #     global blocked_vehicles  # To track the vehicles involved in the accident
+    #     if step == self.start_step:
+    #         # Get all vehicles in the simulation
+    #         vehicle_ids = traci.vehicle.getIDList()
+    #         if not vehicle_ids:
+    #             print("No vehicles in simulation to cause an accident")
+    #             return
+
+    #         # Iterate through lanes to find a pair of vehicles for the accident
+    #         for lane_id in traci.lane.getIDList():
+    #             vehicles_on_lane = traci.lane.getLastStepVehicleIDs(lane_id)
+    #             if len(vehicles_on_lane) >= 2:
+    #                 # Check proximity between the first two vehicles
+    #                 front_vehicle = vehicles_on_lane[0]
+    #                 back_vehicle = vehicles_on_lane[1]
+
+    #                 front_pos = traci.vehicle.getLanePosition(front_vehicle)
+    #                 back_pos = traci.vehicle.getLanePosition(back_vehicle)
+
+    #                 # Ensure vehicles are close enough for a collision
+    #                 if abs(front_pos - back_pos) <= collision_distance:
+    #                     # Stop the front vehicle to simulate sudden braking
+    #                     traci.vehicle.setSpeed(front_vehicle, 0)
+    #                     traci.vehicle.setDecel(front_vehicle, 9.0)  # Maximum deceleration
+    #                     traci.vehicle.setLaneChangeMode(front_vehicle, 0)  # Prevent lane changes
+
+    #                     # Speed up the back vehicle to simulate a collision
+    #                     current_speed = traci.vehicle.getSpeed(back_vehicle)
+    #                     traci.vehicle.setSpeedMode(back_vehicle, 0)  # Disable safety checks
+    #                     traci.vehicle.setSpeed(back_vehicle, current_speed + speed_increase)  # Force speed increase
+    #                     traci.vehicle.setLaneChangeMode(back_vehicle, 0)  # Prevent lane changes
+
+    #                     # Save involved vehicles as static blockers
+    #                     blocked_vehicles = [front_vehicle, back_vehicle]
+
+    #                     for vehicle in blocked_vehicles:
+    #                         traci.vehicle.setType(vehicle, 'CAV2')  # Change vehicle type for visualization
+    #                         print(f"Blocked vehicle: {vehicle}")
+    #                         if vehicle in traci.vehicle.getIDList():
+    #                             traci.vehicle.setSpeed(vehicle, 0)  # Ensure they remain stationary
+    #                             traci.vehicle.setLaneChangeMode(vehicle, 0)  # No lane changes
+
+    #                     print(f"Accident simulated: {back_vehicle} collided with {front_vehicle} on lane {lane_id}")
+
+    #                     return
+
+    #     # # During the blocking duration, keep the involved vehicles stationary
+    #     # elif self.start_step < step <= self.start_step + self.duration_steps:
+    #     #     for vehicle in blocked_vehicles:
+    #     #         if vehicle in traci.vehicle.getIDList():
+    #     #             traci.vehicle.setSpeed(vehicle, 0)  # Ensure they remain stationary
+    #     #             traci.vehicle.setLaneChangeMode(vehicle, 0)  # No lane changes
+
+    #     # After the blocking duration, restore the vehicles or remove them
+    #     elif step > self.start_step + self.duration_steps:
+    #         for vehicle in blocked_vehicles:
+    #             if vehicle in traci.vehicle.getIDList():
+    #                 try:
+    #                     # Restore normal behavior
+    #                     traci.vehicle.setLaneChangeMode(vehicle, 1621)  # Default SUMO lane change mode
+    #                     traci.vehicle.setSpeedMode(vehicle, 31)  # Default SUMO speed mode
+    #                     traci.vehicle.setSpeed(vehicle, 10)  # Allow them to resume movement
+    #                 except Exception as e:
+    #                     print(f"Error restoring vehicle {vehicle}: {e}")
+
+    #         # Clear the blocked vehicles list
+    #         blocked_vehicles.clear()
 
     #     return
     def simulate_accident_based_on_blocked_lanes(self, step):
@@ -507,6 +636,10 @@ class Deployment():
             return
 
 
+
+
+
+
     def triggering(self, step):
         '''
         Creating blocked lanes for incident
@@ -535,16 +668,16 @@ class Deployment():
             
                 traci.vehicle.moveTo(vehID=incident_veh_id, laneID=f'{self.incident_edge}_{lane}', pos=int(self.pos))
                 traci.vehicle.setSpeed(vehID=incident_veh_id, speed=0)
-                # traci.vehicle.setLaneChangeMode(vehID=incident_veh_id, laneChangeMode=0) # LIBSUMO as TRACI
-                traci.vehicle.setLaneChangeMode(vehID=incident_veh_id, lcm=0) # TRACI
+                traci.vehicle.setLaneChangeMode(vehID=incident_veh_id, laneChangeMode=0) # LIBSUMO as TRACI
+                # traci.vehicle.setLaneChangeMode(vehID=incident_veh_id, lcm=0) # TRACI
         
-        elif step > self.start_step and (step-self.start_step)%100==0 and (step-self.start_step) < self.duration_steps: # Starts moving block to avoid time out
-            for lane in self.lanes:
-                incident_veh_id = f'incident_veh_{self.incident_edge}_{lane}_{self.pos}'
-                incident_route_id = f"incident_route_{self.incident_edge}_{lane}_{self.pos}"
-                active_vehicles = traci.vehicle.getIDList()
-                if incident_veh_id in active_vehicles:
-                    traci.vehicle.setSpeed(vehID=incident_veh_id, speed=0.101)
+        # elif step > self.start_step and (step-self.start_step)%100==0 and (step-self.start_step) < self.duration_steps: # Starts moving block to avoid time out
+        #     for lane in self.lanes:
+        #         incident_veh_id = f'incident_veh_{self.incident_edge}_{lane}_{self.pos}'
+        #         incident_route_id = f"incident_route_{self.incident_edge}_{lane}_{self.pos}"
+        #         active_vehicles = traci.vehicle.getIDList()
+        #         if incident_veh_id in active_vehicles:
+        #             traci.vehicle.setSpeed(vehID=incident_veh_id, speed=0.101)
 
         elif step > self.start_step and (step-self.start_step)%102==0 and (step-self.start_step) < self.duration_steps: # Stops moving block
             for lane in self.lanes:
@@ -619,7 +752,116 @@ class Deployment():
                         traci.vehicle.setMaxSpeed(veh, 55.55)
                         traci.vehicle.setSpeed(veh, -1)
                         self.processed_vehicles.add(veh)  # Also mark it so we skip next time
-        
+
+
+    def manage_incident_queue_teleport_exemption(self, step):
+        '''
+        Prevent vehicles genuinely queued behind THIS incident block from
+        being teleported away by SUMO's global teleport timeout. Only
+        vehicles that are physically prevented from moving past the
+        incident are exempted -- on a BLOCKED lane (self.lanes, not
+        self.incident_edge_lanes -- vehicles on a still-free lane of the
+        incident edge can pass and are not queued) upstream of the incident
+        position, or stopped on an edge feeding directly into the incident
+        edge. This must NOT be applied network-wide, or it reintroduces the
+        original teleport bug (unbounded gridlock) for ordinary congestion
+        elsewhere in the network.
+
+        Exempted vehicles have their vType switched to 'CAV4'
+        (timeToTeleport="-1", defined in ingolstadt21.add.xml). Once a
+        vehicle is no longer blocked (it has passed the incident position,
+        the incident has cleared, or the vehicle itself left the
+        simulation), it is restored to its original vType so it goes back
+        to standard teleport behavior like any other vehicle.
+
+        Scope, deliberately not wider (see task write-up if this needs
+        revisiting):
+          - Blocked-lane check is single-tier (the incident edge itself)
+            plus upstream edges DIRECTLY incoming to it -- not a multi-hop
+            cascade further upstream. Long/severe incidents (e.g. the
+            near-full-episode recipe incidents at 243641585/2330725114)
+            could plausibly queue back past this two-tier zone; if that
+            turns out to matter in practice, it needs a follow-up, not a
+            silent widening here.
+          - Each Deployment instance (one per active incident) tracks its
+            own teleport_exempt_vehicles independently. A vehicle queued
+            behind two simultaneous incidents at once isn't specially
+            handled -- whichever incident's check runs last each step
+            "owns" the exemption bookkeeping for that vehicle, but the
+            vehicle still ends up correctly exempted either way, so this is
+            only a bookkeeping/attribution nuance, not a correctness gap.
+        '''
+        QUEUE_SPEED_THRESHOLD = 0.1  # m/s, treated as "stopped"
+        active_vehicles = set(traci.vehicle.getIDList())
+
+        incident_active = self.start_step <= step <= (self.start_step + self.duration_steps)
+
+        blocked_vehicle_ids = set()
+        if incident_active:
+            # 1. Vehicles on the incident edge's BLOCKED lanes, upstream of
+            #    the incident position -- cannot physically pass until the
+            #    incident clears (unless they change to a free lane on the
+            #    same edge, which the free lanes make possible, so they are
+            #    not included here).
+            for lane in self.lanes:
+                lane_id = f"{self.incident_edge}_{lane}"
+                for veh in traci.lane.getLastStepVehicleIDs(lane_id):
+                    if 'incident' in veh:
+                        continue
+                    if traci.vehicle.getLanePosition(veh) < self.pos:
+                        blocked_vehicle_ids.add(veh)
+
+            # 2. Vehicles stopped on edges directly upstream of the incident
+            #    edge -- likely already queued back off the incident edge.
+            if self.upstream_edges:
+                for edge in self.upstream_edges:
+                    n_lanes = self.upstream_edges_n_lanes_dict.get(edge, 0)
+                    for lane in range(n_lanes):
+                        lane_id = f"{edge}_{lane}"
+                        for veh in traci.lane.getLastStepVehicleIDs(lane_id):
+                            if 'incident' in veh:
+                                continue
+                            if traci.vehicle.getSpeed(veh) < QUEUE_SPEED_THRESHOLD:
+                                blocked_vehicle_ids.add(veh)
+
+        # Apply exemption to newly-identified blocked vehicles
+        for veh in blocked_vehicle_ids:
+            if veh not in active_vehicles:
+                continue
+            if veh not in self.teleport_exempt_vehicles:
+                original_type = traci.vehicle.getTypeID(veh)
+                # SUMO auto-generates a vehicle-specific compound type name
+                # ("baseType@vehID") whenever a per-vehicle parameter
+                # override is applied (e.g. speed_adjustment()'s
+                # setParameter/setMaxSpeed calls) -- that compound name is
+                # NOT a real, settable vType, only the base type before the
+                # "@" is. Restoring to the raw compound string crashes
+                # traci.vehicle.setType() ("Vehicle type '...' is not
+                # known"). Strip it here so restoration always targets a
+                # real vType.
+                base_type = original_type.split('@')[0]
+                if base_type != 'CAV4':
+                    self.teleport_exempt_vehicles[veh] = base_type
+                    traci.vehicle.setType(veh, 'CAV4')
+                    print(f"run {self.run_num} step {step} exempting queued vehicle {veh} "
+                          f"from teleport (incident on {self.incident_edge})")
+
+        # Restore any exempted vehicle that is no longer in the blocked set
+        # (passed the incident, or the incident window has ended -- this
+        # runs every step regardless of incident_active, so restoration
+        # happens immediately once the incident clears, not just while
+        # it's still active).
+        no_longer_blocked = [
+            veh for veh in self.teleport_exempt_vehicles
+            if veh not in blocked_vehicle_ids
+        ]
+        for veh in no_longer_blocked:
+            original_type = self.teleport_exempt_vehicles.pop(veh)
+            if veh in active_vehicles:
+                traci.vehicle.setType(veh, original_type)
+                print(f"run {self.run_num} step {step} restoring vehicle {veh} to {original_type} "
+                      f"(no longer queued behind incident on {self.incident_edge})")
+
 
     def speed_adjustment_upstream(self, step):
         for edge in self.upstream_edges:
@@ -634,6 +876,17 @@ class Deployment():
                             if dist_to_edge_end < self.upstream_slow_zone:
                                 traci.vehicle.setMaxSpeed(veh, self.slow_zone_speed)
 
+                            # if self.free_lanes: 
+                            #     if len(self.incident_edge_lanes) == self.upstream_edges_n_lanes_dict[edge]: # Note this is only implemented if the junction is 1-to-1
+                            #         dist_to_free_lane = np.min(np.abs(lane - np.array(self.free_lanes)))
+                            #         if 0 < dist_to_edge_end < self.upstream_lc_prob_zone * dist_to_free_lane:
+                            #             target_lane = min(self.free_lanes, key=lambda x:abs(x-traci.vehicle.getLaneIndex(veh)))
+                            #             frac_of_prob_zone_left = (dist_to_edge_end - self.pos) / (self.lc_prob_zone - self.lc_zone)
+                            #             if np.random.uniform() > frac_of_prob_zone_left:
+                            #                 if veh not in self.last_lane_change_time or step - self.last_lane_change_time[veh] > self.min_lane_change_interval_upstream:
+                            #                     # print(f'Forcing {veh} to change lane')
+                            #                     traci.vehicle.changeLane(veh, target_lane, 0.1)
+                            #                     self.last_lane_change_time[veh] = step
     
     def remove_speed_limit(self):
         for lane in self.incident_edge_lanes:
@@ -720,7 +973,7 @@ class Deployment():
 
                 awareness_prob = self.calculate_combined_awareness(step/60, vehicle_id)
                 # print(f"Checking awareness of vehicle {vehicle_id} at step {step} at edge {current_edge}: {awareness_prob}")
-                if np.random.uniform() < awareness_prob:
+                if self.rng.uniform() < awareness_prob:
                     # Mark vehicle as aware
                     self.awareness_vehicles.add(vehicle_id)
                     # print(f"Vehicle {vehicle_id} is aware of the incident at step {step} at edge {current_edge}")
@@ -733,7 +986,7 @@ class Deployment():
 
             # Step 2: Rerouting Evaluation
             to_remove = []
-            for vehicle_id in self.awareness_vehicles:
+            for vehicle_id in sorted(self.awareness_vehicles):
                 # Check if the vehicle is still in the simulation
                 if vehicle_id not in traci.vehicle.getIDList():
                     to_remove.append(vehicle_id)
@@ -795,7 +1048,7 @@ class Deployment():
 
                 # Reroute if the rerouting probability condition is met
                 
-                if np.random.uniform() < reroute_prob:
+                if self.rng.uniform() < reroute_prob:
                     self.rerouted_vehicles.add(vehicle_id)
                     # print('Route before rerouting:', vehicle_route)
                     accumulated_travel_time_before = 0
@@ -1103,6 +1356,39 @@ class Deployment():
             arc_costs.append(travel_time)
 
         return arc_costs
+    
+    # def add_information_noise(self, values, noise_std=0.1):
+    #     """
+    #     Add noise to simulate imperfect information.
+    #     The noisy level is decided based on driver type:
+    #     - 40% of experienced drivers
+    #     - 30% of novoice drivers
+    #     - 20% of distracted drivers
+    #     - 10% of CAVs
+
+    #     Parameters:
+    #     - values: List of values to which noise will be added.
+    #     - noise_std: Standard deviation of the noise.
+
+    #     Returns:
+    #     - noisy_values: List of values with added noise.
+    #     """
+    #     # Sample driver type
+    #     driver_prob = [0.4, 0.3, 0.2, 0.1]
+    #     driver_type = np.random.choice(['experienced', 'novoice', 'distracted', 'CAV'], p=driver_prob)
+        
+    #     if driver_type == 'experienced':
+    #         noise_std = 0.05
+    #     elif driver_type == 'novoice':
+    #         noise_std = 0.1
+    #     elif driver_type == 'distracted':
+    #         noise_std = 0.2
+    #     elif driver_type == 'CAV':
+    #         noise_std = 0.01
+
+    #     noise = np.random.normal(0, noise_std, size=len(values))
+    #     noisy_values = np.maximum(values + noise, 0)  # Ensure values are non-negative
+    #     return noisy_values / np.sum(noisy_values)  # Normalize to maintain probability distribution
 
     def add_information_noise(self, values, noise_std=0.1):
         """
@@ -1128,7 +1414,7 @@ class Deployment():
 
         # Sample driver type
         driver_prob = [0.4, 0.3, 0.2, 0.1]
-        driver_type = np.random.choice(['experienced', 'novice', 'distracted', 'CAV'], p=driver_prob)
+        driver_type = self.rng.choice(['experienced', 'novice', 'distracted', 'CAV'], p=driver_prob)
         
         # Adjust noise level based on driver type
         if driver_type == 'experienced':
@@ -1141,7 +1427,7 @@ class Deployment():
             noise_std = 0.01
 
         # Generate noise matching the shape of 'values'
-        noise = np.random.normal(0, noise_std, size=values.shape)
+        noise = self.rng.normal(0, noise_std, size=values.shape)
         
         # Add noise and ensure non-negativity
         noisy_values = np.maximum(values + noise, 0)
@@ -1277,6 +1563,29 @@ class Deployment():
         return numerator / denominator
 
 
+    # def reroute_model(self, actual_probs, typical_probs, arc_costs, beta_0, beta_gain, beta_loss):
+    #     """
+    #     Calculate the rerouting probability (kappa) using the logit model.
+        
+    #     Parameters:
+    #     - delta_p: Expected gain (Delta p).
+    #     - delta_w: Avoided loss (Delta w).
+    #     - beta_gain: Sensitivity to expected gain.
+    #     - beta_loss: Sensitivity to avoided loss.
+    #     - beta_0: control general willingness to reroute
+        
+    #     Returns:
+    #     - rerouting_probability: Probability of rerouting.
+    #     """
+
+    #     delta_p = self.calculate_expected_gain(actual_probs, typical_probs)
+    #     delta_w = self.calculate_avoided_loss(actual_probs, typical_probs, arc_costs)
+    #     if delta_p == [] or delta_w == []:
+    #         return 0
+    #     v_reroute = beta_0 + beta_gain * delta_p - beta_loss * delta_w
+    #     reroute_prob = 1 / (1 + np.exp(-v_reroute))
+    #     return reroute_prob
+
     def reroute_model(self, actual_probs, typical_probs, arc_costs,
                   beta_0, beta_gain, beta_loss):
         """
@@ -1373,6 +1682,60 @@ class Deployment():
         combined_awareness = 1 - (1 - news_prob) * (1 - vms_prob) * (1 - online_prob) * (1 - obs_prob)
 
         return combined_awareness
+
+
+    #==============================================
+
+    # def interpolate_position(self, edge_shape):
+    #     """
+    #     Interpolate the Cartesian coordinates of a position along an edge.
+
+    #     Parameters:
+    #     - edge_shape: List of (x, y) coordinates defining the edge geometry.
+    #     - position: Position along the edge in meters.
+
+    #     Returns:
+    #     - (x, y): Interpolated Cartesian coordinates.
+    #     """
+    #     total_length = 0
+    #     for i in range(len(edge_shape) - 1):
+    #         segment_length = np.sqrt((edge_shape[i+1][0] - edge_shape[i][0])**2 +
+    #                                 (edge_shape[i+1][1] - edge_shape[i][1])**2)
+    #         if total_length + segment_length >= self.pos:
+    #             ratio = (self.pos - total_length) / segment_length
+    #             x = edge_shape[i][0] + ratio * (edge_shape[i+1][0] - edge_shape[i][0])
+    #             y = edge_shape[i][1] + ratio * (edge_shape[i+1][1] - edge_shape[i][1])
+    #             return (x, y)
+    #         total_length += segment_length
+    #     return edge_shape[-1]  # In case position is at the very end
+
+    # def calculate_cartesian_distance(self, edge_id):
+    #     """
+    #     Calculate the Cartesian distance from the tail of an edge to an incident position.
+
+    #     Parameters:
+    #     - edge_id: ID of the specific edge.
+    #     - incident_edge: ID of the edge where the incident occurred.
+    #     - incident_position: Position along the incident edge in meters.
+
+    #     Returns:
+    #     - distance: Cartesian distance from the tail of edge_id to the incident position.
+    #     """
+    #     # Get the tail node and its position
+    #     tail_node = traci.lane.getFromNode(f'{edge_id}_0')
+    #     tail_position = traci.junction.getPosition(tail_node)  # (x, y)
+
+    #     # Get the geometry of the incident edge
+    #     incident_edge_shape = traci.lane.getShape(f'{self.incident_edge}_0')
+
+    #     # Interpolate the Cartesian coordinates of the incident position
+    #     incident_position_cartesian = self.interpolate_position(incident_edge_shape)
+
+    #     # Calculate the Cartesian distance
+    #     distance = np.sqrt((incident_position_cartesian[0] - tail_position[0])**2 +
+    #                     (incident_position_cartesian[1] - tail_position[1])**2)
+    #     return distance
+    #==============================================
 
     def get_vms_edges(self, percentage, vms_seed=42):
         """
