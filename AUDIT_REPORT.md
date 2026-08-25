@@ -122,6 +122,108 @@ using libsumo, contrary to what the flag name and `LIBSUMO_AS_TRACI` env var sug
 fixed this round (out of Part A's re-verification scope, and not one of the six items asked
 for) — noted for a future pass.
 
+## Round 5 — Part B: manuscript-confirmed fixes
+
+The repo owner directly read the submitted manuscript and confirmed the following against
+the actual paper text (not the audit brief's paraphrase). No longer ambiguous "code vs.
+brief" disputes — applied as confirmed fixes, each citing its exact paper section in both
+the code comment and the commit message.
+
+### B1. Incident start-time upper bound → `end_time − 1200` — ✅ Applied
+
+Manuscript Section 2.3: `t_start ~ U(t_warmup, t_end − 1200)`. `T_REX.py::random_time()`
+changed from `end_time - 500`. Live-reverified on `ingolstadt7`: every sampled start time
+now falls within the tightened window (`≤ 2400` for a 3600s episode). Test updated:
+`tests/test_incident_sampling.py::test_random_time_within_paper_bounds`.
+
+### B2. Warm-up phase → `100` seconds — ✅ Applied
+
+Manuscript Section 3.5: "Each traffic episode simulates 3,600 seconds, including a
+100-second warm-up phase." `TREX_comp/config/map_config.py`: `warmup` changed from `0` to
+`100` in all 10 network entries. Confirmed uniform, not network-specific: every entry's
+`end_time − start_time` is exactly 3600s, matching the manuscript's blanket per-episode
+duration — no exception to carve out.
+
+### B3. `slow_zone_speed` → `2.2352` m/s (exact 5 mph) — ✅ Applied
+
+Manuscript Section 2.4.2: "a conservative reduced speed of 5 mph (approximately 8 km/h)."
+`T_REX.py:28`: `self.slow_zone_speed` changed from `1.39` to `2.2352` (`5 * 1609.344 / 3600`,
+the exact conversion — chosen over a rounded value so the constant is traceably derived, not
+an approximation of an approximation). This replaces the uncommitted WIP edit found at the
+very start of this audit, whose own comment (`# 13.8 is 50 km/h`) didn't match the value it
+was attached to (`1.39`) either — both the value and the stale comment are now corrected
+together. New test: `tests/test_ssd.py::test_slow_zone_speed_matches_paper_5mph` (reads
+`Initializer.__init__`'s source directly via `inspect.getsource`, since the class needs a
+live SUMO connection to construct fully and this value isn't extracted into a testable class
+attribute).
+
+### B4. SUMO seed control + exploration/incident RNG independence — ✅ Applied (deliberate methodology change, not a bug fix)
+
+Manuscript Section 3.4 confirms results are "averaged over five random seeds" — full-pipeline
+seed control is part of the paper's stated methodology, not optional. Two parts:
+
+1. **SUMO-level `--seed`** (already implemented in earlier rounds — `main.py`'s `--seed`
+   flag, default `42`, threaded through `TrexEnv._seed_args()` to SUMO's `--seed` instead of
+   `--random`; see rounds 1-2). No new code needed here, already live and tested.
+2. **Independent exploration RNG** (new this round): `main.py::run_trial` now constructs
+   `agt_config['exploration_rng'] = np.random.default_rng(args.seed)` before agent
+   construction — a `Generator` instance using a mathematically distinct algorithm (PCG64)
+   from the legacy global `numpy.random` API (Mersenne Twister) that
+   `T_REX.py::Initializer.random()` reseeds every episode via `np.random.seed(...)`, so
+   sharing the same seed *value* creates no correlation between the two streams.
+   - `TREX_comp/agents/pfrl_dqn.py::DQNAgent` (used by IDQN and MPLight): reads
+     `config.get('exploration_rng')` (falls back to a fresh, unseeded `Generator` if absent,
+     e.g. direct construction in tests), uses it for the random-action-selection lambda in
+     both the shared (`SharedEpsGreedy`, MPLight's path) and non-shared
+     (`explorers.LinearDecayEpsilonGreedy`, IDQN's path) explorers, and for the
+     epsilon-vs-random coin flip in `select_action_epsilon_greedily`
+     (`SharedEpsGreedy`/MPLight's path only — see caveat below).
+   - `TREX_comp/agents/ma2c.py::MA2CAgent` (FMA2C): same pattern, used for the
+     `np.random.choice` policy-action sampling in `act()`.
+   - **Not touched**: `ma2c.py`'s `ortho_init` (`np.random.standard_normal`) is one-time
+     TensorFlow *weight initialization* at model-build time, not an exploration/action-
+     selection call — a structurally different concern (fires once, not every training
+     step) and out of scope for "exploration vs. incident sampling" entanglement.
+   - **Caveat, honestly scoped, not overclaimed**: IDQN (non-shared path) only controls the
+     *which-action-to-explore* draw via the injected `Generator` — the *whether-to-explore*
+     epsilon coin flip happens inside `pfrl`'s own `LinearDecayEpsilonGreedy.select_action`
+     (third-party library internals, not reachable without forking/monkeypatching pfrl,
+     which is out of scope). MPLight (shared path, our own `SharedEpsGreedy` subclass) and
+     FMA2C are **fully** decoupled — every exploration-relevant random draw goes through the
+     injected `Generator`.
+
+**Proof, not assumed** (per instruction, run and confirmed rather than left as a claim):
+- Mathematical/isolated proof: same-seed `Generator`s produce identical draws; different
+  seeds diverge; and — the critical check — interleaving global `np.random.seed()` reseeds
+  (exactly what `Initializer.random()` does every episode) between draws from an independent
+  `Generator` does **not** perturb that Generator's own sequence. All three confirmed both
+  in an ad hoc script and as a permanent test using the *real* production code paths (not a
+  simulation): `tests/test_rng_independence.py`, which interleaves actual
+  `T_REX.py::Initializer` construction/reseeding with actual `DQNAgent` explorer draws.
+  3/3 passing.
+- Live full-pipeline re-verification: `IDQN` and `MPLight` (the shared-explorer path, the
+  more heavily modified one) both trained 2 episodes end-to-end on `ingolstadt7` with the
+  new RNG threading in place — no errors, metrics written, no lingering SUMO processes
+  either way.
+
+This **does** change simulation/training output relative to the prior unseeded-SUMO,
+entangled-exploration behavior — expected and correct per the manuscript's stated
+methodology, not a regression. Distinct from B1-B3 (which correct code that diverged from
+the paper's own stated formulas/constants): B4 is a deliberate reproducibility capability
+the paper's methodology requires and the code previously lacked, not a wrong-value bug.
+Anyone diffing pre- and post-this-round output on a fixed seed will see a real difference in
+both incident placement (already true since round 1-2's SUMO-seed work) and now also agent
+exploration — that's the point, not a surprise to be alarmed by.
+
+### B5. 20m short-edge threshold — confirmed consistent with the manuscript's own reasoning — no code change
+
+Manuscript Section 2.3: "the 10-meter buffer at each end prevents bugs in SUMO." Round 4's
+fix (excluding edges `<20m` — two 10m buffers — from the incident-candidate pool, see §4.4)
+is directly consistent with this stated reasoning: the manuscript itself motivates the
+10m-per-end buffer that makes edges shorter than 20m infeasible. No code change needed;
+closing this "Needs owner decision" item as resolved by the manuscript text itself rather
+than left open.
+
 ## Round 4 — verification, attribution, and one real bug
 
 ### 4.1 `arterial4x4` `rm -rf` recovery — verified clean, evidence below (not restated)
@@ -246,19 +348,24 @@ anyone diffing old vs. new seeded runs.
 
 ## Needs owner decision — consolidated (all rounds, single authoritative list)
 
-Every item below is untouched and waiting on the repo owner. Superset of round 2's original
-table plus everything found in rounds 3-4; nothing here has been acted on beyond flagging it.
+**Resolved in round 5** (manuscript-confirmed by the repo owner directly, see Part B
+above) — no longer open:
+- ~~Incident start-time upper bound~~ → fixed to `end_time − 1200` (B1, Section 2.3).
+- ~~`warmup=0`~~ → fixed to `100` (B2, Section 3.5).
+- ~~`slow_zone_speed=1.39`~~ → fixed to `2.2352` (B3, Section 2.4.2).
+- ~~SUMO-level `--seed` vs. RL-exploration-RNG independence~~ → both implemented (B4,
+  Section 3.4) — SUMO seeding in earlier rounds, exploration-RNG independence this round.
+- ~~`random_pos()`'s 20m threshold, confirmed vs. speculative~~ → confirmed consistent with
+  the manuscript's own stated reasoning (B5, Section 2.3) — the threshold itself was never
+  in question, only whether it matched the paper's rationale; it does.
+
+**Still open**, waiting on the repo owner:
 
 | # | Item | File(s) | Since |
 |---|---|---|---|
-| 1 | Incident start-time upper bound: code uses `end_time − 500`, paper/brief states `end_time − 1200` | `T_REX.py:240` | round 2 |
-| 2 | `warmup=0` in all 10 network configs | `TREX_comp/config/map_config.py` | round 2 |
-| 3 | `slow_zone_speed=1.39` contradicts its own inline comment and the paper's ~8km/h figure | `T_REX.py:28` | round 2 |
-| 4 | Whether to keep, regenerate, or remove `arterial4x4`/`arterial5x5` (1.3GB+ of committed route files; `arterial5x5` has no data at all and isn't reachable via `--map`) | `environments/arterial4x4/`, `TREX_comp/config/map_config.py` | round 1/2 |
-| 5 | SUMO-level `--seed` vs. RL-exploration-RNG independence: `Initializer` reseeds the same global `numpy` RNG the RL agents' exploration policies draw from | `T_REX.py`, `TREX_comp/agents/*.py` | round 2 |
-| 6 | The uncommitted `IC` vType `timeToTeleport="-1"` edits (§4.3) — origin/intent not confirmed by anyone in this audit; already committed (`d9385df27`) alongside round 3's `CAV4` work because they were in the same files, not because they were reviewed. Needs explicit confirmation this was intentional. | `environments/{grid4x4,arterial4x4,cologne3,cologne8,ingolstadt7,cologne1,ingolstadt1}/*.add.xml` | round 3, isolated round 4 |
-| 7 | `random_pos()`'s 20m short-edge exclusion threshold, and exclusion-vs-clamping as the fix strategy (§4.4) — shipped as a safe default, not a confirmed methodology choice | `T_REX.py` (`random_edge`/`weighted_random_edge`) | round 4 |
-| 8 | Round 2's other 🚩-flagged items were never re-verified against a live run the way the CSVs/CAV4 were (§4.2) — no specific bug identified, just an open trust gap worth a future pass | (all of round 2's flagged items) | round 4 |
+| 1 | Whether to keep, regenerate, or remove `arterial4x4`/`arterial5x5`. **New evidence this round**: manuscript Section 3.1 confirms the paper's experiments only use Grid4x4 + Cologne Corridor/Region + Ingolstadt Corridor/Region — these two networks are confirmed unused by the published results. That doesn't by itself settle keep vs. regenerate vs. remove (1.3GB+ of committed route files either way); still the repo owner's call. | `environments/arterial4x4/`, `TREX_comp/config/map_config.py` | round 1/2, evidence added round 5 |
+| 2 | The uncommitted `IC` vType `timeToTeleport="-1"` edits (§4.3) — origin/intent not confirmed by anyone in this audit; already committed (`d9385df27`) alongside round 3's `CAV4` work because they were in the same files, not because they were reviewed. No manuscript connection at all (unlike everything else in this table) — purely an intent-confirmation question. | `environments/{grid4x4,arterial4x4,cologne3,cologne8,ingolstadt7,cologne1,ingolstadt1}/*.add.xml` | round 3, isolated round 4 |
+| 3 | Round 2's other 🚩-flagged items (beyond the CSV finding, which round 3 re-verified, and B1-B5 above) were never re-verified against a live run — no specific bug identified, just an open trust gap worth a future pass, in the same spirit as round 5 Part A's re-verification of round 1's claims. | (any remaining round 2 flagged items not covered above) | round 4, unchanged round 5 |
 
 ## Round 3 — validation, then completion of skipped items
 
@@ -515,13 +622,19 @@ enabling/disabling incidents doesn't silently change anything else about the sim
    `log_dir` *without* a trailing separator breaks pre-merge `BaseEnv`'s directory creation
    silently). `TrexEnv` always uses `os.path.join`.
 
-## Needs owner decision (round 2)
+## Needs owner decision (round 2) — RESOLVED round 5, see Part B above
 
-These three items are **deliberately left unresolved** — each is a numeric discrepancy
-between the running code and the paper/brief's stated value, in scientifically load-bearing
-sampling/behavior code. Only someone with the manuscript in hand (or who made the recent
-edit in the `slow_zone_speed` case) can say which side is authoritative; this audit will not
-guess. Full context for each is in the linked section below.
+> **Update (round 5):** all three of these were confirmed against the manuscript text
+> directly by the repo owner and fixed — B1 (`end_time − 1200`), B2 (`warmup=100`), B3
+> (`slow_zone_speed=2.2352`). No longer open; kept below for historical context only. See
+> the "Round 5 — Part B" section near the top of this report for what changed and the
+> live re-verification evidence.
+
+These three items were **deliberately left unresolved** at the time — each was a numeric
+discrepancy between the running code and the paper/brief's stated value, in scientifically
+load-bearing sampling/behavior code. Only someone with the manuscript in hand (or who made
+the recent edit in the `slow_zone_speed` case) could say which side is authoritative; this
+audit did not guess. Full context for each is in the linked section below.
 
 | Item | Code value | Paper/brief value | File:line |
 |---|---|---|---|
@@ -887,6 +1000,10 @@ Located in `T_REX.py::Deployment` (`ICM`, `calculate_combined_awareness`, `rerou
   decision: was `1.39` an intentional new experiment value (typo in the comment), or should
   it revert to `2.2` (paper-matching) or become `13.8` (matching the comment)?**
 
+  > **Update (round 5, B3):** resolved — confirmed against the manuscript text directly by
+  > the repo owner ("a conservative reduced speed of 5 mph (approximately 8 km/h)",
+  > Section 2.4.2). `slow_zone_speed` is now `2.2352` m/s, the exact 5 mph conversion.
+
 ### 2.4 Incident sampling (Section 2.3)
 
 `T_REX.py::Initializer` (lines 84–255).
@@ -896,7 +1013,7 @@ Located in `T_REX.py::Deployment` (`ICM`, `calculate_combined_awareness`, `rerou
 | Blocked lane count | uniform | `random_lanes`: `np.random.randint(1, n_lanes+1)` (level 2) / `randint(1, n_lanes)` (level 1), lanes taken from either end, not fully random subset (commented-out fully-random alternative at `T_REX.py:225-226`) | ✅ Uniform count sampling matches; lane *contiguity* (blocking from one end rather than an arbitrary subset) is a modeling choice not contradicted by the brief's "uniform lane count" description |
 | Position `U(10, x_e − 10)` | `random_pos`: `np.random.uniform(10, edge_length - 10)` (`T_REX.py:233`) | ✅ **Exact match** |
 | Duration `~Exp(0.029)` | `random_duration`: `np.rint(np.random.exponential(1/0.029)).astype(int)*60` (`T_REX.py:249`) — note `numpy`'s `exponential(scale)` takes `scale=1/rate`, and the result is in **minutes**, multiplied by 60 for seconds | ✅ Matches `Exp(0.029)` under the standard rate parameterization, assuming the paper's rate is per-minute (consistent with the `*60` conversion and with realistic incident durations) |
-| Start time `U(t_warmup, t_end − 1200)` | `random_time`: `np.rint(np.random.uniform(self.warm_up_time, self.end_time - 500)).astype(int)` (`T_REX.py:240`) | 🚩 **Mismatch, flagged not fixed — see "Needs owner decision" at the top of this report.** Code uses `end_time - 500`, the paper's brief states `end_time - 1200`. This is a direct numeric discrepancy against the paper's stated formula (exactly the "formula doesn't match the paper's equation" case ground rule 3 says to flag, not guess-fix) — could be a bug, or a deliberate post-submission revision. **Needs a decision from someone with the manuscript in hand.** |
+| Start time `U(t_warmup, t_end − 1200)` | `random_time`: `np.rint(np.random.uniform(self.warm_up_time, self.end_time - 1200)).astype(int)` (`T_REX.py`) | ✅ **Fixed round 5 (B1)** — was `end_time - 500`, confirmed against the manuscript directly by the repo owner and corrected to `end_time - 1200`, matching Section 2.3 exactly. (Historical note: this row previously read "Mismatch, flagged not fixed" pending that confirmation.) |
 | `warm_up_time` always `0` | implied nonzero (used as the lower bound of the incident start-time distribution) | `map_config.py`: every network entry has `'warmup': 0` | 🚩 Flagged, not changed — `warmup=0` for all 8 networks means the incident start-time distribution's lower bound is always 0 regardless of network; some networks additionally set a `start_time` (a simulation-of-day offset, e.g. Ingolstadt `57600`) which is a *different* field passed to SUMO, not `warm_up_time`. Whether this is intentional (warm-up handled via the time-of-day offset instead) or a gap needs a modeler's confirmation. |
 
 ### 2.4b Incident *categories* (Table B1) are not a distinct code parameter
@@ -984,12 +1101,22 @@ The paper's brief claims "seed-controlled, averaged-over-5-seeds results." The c
   RNG rather than an independent generator — e.g. `TREX_comp/agents/pfrl_dqn.py:62,69,167`
   (`np.random.randint`, `np.random.rand`).
 
-🚩 **Flagged for human review, not changed.** The net effect: SUMO-level vehicle stochasticity
-is never seed-controlled at all, and RL exploration randomness is entangled with incident-seed
-reseeding rather than independent. Properly fixing this (giving SUMO a deterministic `--seed`
-derived from the run's seed, and giving the RL exploration policy its own independent
-generator) is a good idea, but changes what "the same seed" reproduces — exactly the kind of
-scientific-logic change ground rule 3 says must be flagged rather than silently altered.
+Originally 🚩 **flagged for human review, not changed** — fixing this changes what "the same
+seed" reproduces, exactly the kind of scientific-logic change ground rule 3 says must be
+flagged rather than silently altered.
+
+> **Update (round 5, B4):** the repo owner confirmed via the manuscript (Section 3.4,
+> "averaged over five random seeds") that full-pipeline seed control is part of the stated
+> methodology, not optional — applied as a confirmed, deliberate methodology change (not a
+> silent alteration): SUMO now gets a deterministic `--seed` (rounds 1-2's work, already
+> live), and the RL agents' exploration policies now draw from an independent
+> `np.random.default_rng()` `Generator` instead of the global RNG `Initializer.random()`
+> reseeds every episode. See "Round 5 — Part B4" near the top of this report for the full
+> writeup, the honest scoping caveat (IDQN's epsilon-vs-explore coin flip still lives inside
+> `pfrl`'s own library internals, not reachable from this codebase), and the reproducibility
+> proof (same seed → identical draws; different seeds → diverge; global reseeding doesn't
+> perturb the independent Generator — all three verified against the real production code
+> paths, not simulated).
 
 ---
 
@@ -1106,10 +1233,10 @@ changes.
 | Bug | `MPLight.__init__` accepts `lr` but hardcodes `0.005` for the underlying `DQNAgent`, ignoring it | ✅ Fixed |
 | Bug | `main.py::run_episode` discards its `obs` param, silently breaking `--repeat` seed replay | ✅ Fixed |
 | Bug | TraCI/SUMO lifecycle has no exception safety → subprocess leak on error | ✅ Fixed |
-| Bug (flagged) | Incident start-time upper bound `end_time-500` vs paper's `end_time-1200` | 🚩 Flagged |
-| Bug (flagged) | `slow_zone_speed=1.39` contradicts its own comment (`13.8`) and the paper's ~8km/h figure | 🚩 Flagged |
-| Bug (flagged) | SUMO never seeded (`--random` always); RL exploration RNG entangled with incident-seed reseeding | 🚩 Flagged |
-| Bug (flagged) | `warmup=0` for every network | 🚩 Flagged |
+| Bug | Incident start-time upper bound `end_time-500` vs paper's `end_time-1200` | ✅ Fixed round 5 (B1) — manuscript-confirmed |
+| Bug | `slow_zone_speed=1.39` contradicted its own comment (`13.8`) and the paper's ~8km/h figure | ✅ Fixed round 5 (B3) — manuscript-confirmed, now `2.2352` |
+| Bug | SUMO never seeded (`--random` always); RL exploration RNG entangled with incident-seed reseeding | ✅ Fixed round 5 (B4) — SUMO `--seed` (rounds 1-2) + independent exploration RNG (round 5), manuscript-confirmed methodology |
+| Bug | `warmup=0` for every network | ✅ Fixed round 5 (B2) — manuscript-confirmed, now `100` |
 | Style | Pervasive `print()` debugging instead of `logging` | ✅ Fixed |
 | Style | `assert` used for runtime validation in sampling code | 🚩 Flagged |
 | Cleanup | Large commented-out dead-code blocks in `T_REX.py` | 🚩 Flagged |

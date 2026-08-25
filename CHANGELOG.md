@@ -3,11 +3,65 @@
 Changes made on the `audit/code-quality-and-docs` branch, grouped by audit phase. See
 `AUDIT_REPORT.md` for the full analysis behind each item, including everything that was
 **flagged but not changed** (most items below link back to a report section for that
-reason). Nothing in the scientific formulas — metric definitions, ICM/SSD equations,
-incident sampling distributions, RL reward/observation functions — was altered, with one
-exception: round 4 fixed a genuine bug (not a formula change) in incident edge selection
-that could produce a physically invalid negative incident position; see that round's entry
-for the reproducibility implications.
+reason). Through round 4, nothing in the scientific formulas/constants was altered except
+one genuine bug fix (round 4's incident edge-selection fix, not a formula change). **Round 5
+is the exception**: several numeric constants and the RNG-seeding methodology were changed
+directly on the repo owner's manuscript-confirmed direction — see that round's entry for
+exactly what changed, the paper section cited for each, and why those are confirmed fixes
+rather than guesses.
+
+## Round 5 — Part A: close the round-1 trust gap, then Part B: manuscript-confirmed fixes
+
+**Part A** re-ran, live, the six items round 1 marked "✅ Fixed" without a live re-run to
+back that up (the same gap that made round 2's CSV claim stale). All six: **PASS**, with
+real evidence (not restated claims) now in `AUDIT_REPORT.md` — `--verbose` genuinely gates
+DEBUG output (0 → 282 lines); a real (non-libsumo) SUMO subprocess was confirmed spawned
+mid-episode then confirmed gone after a deliberately-injected exception, via `close()`'s
+`finally` block; `MPLight`'s `lr` was read back from the actual PyTorch optimizer state at
+several values, all matched; `--repeat`'s seed replay was proven end-to-end via the real CLI
+(trained 3 episodes recording the last one's incident seed, then replayed it with a
+*different* top-level `--seed` and got byte-identical incident logs); `get_arcs_cost` got
+direct test coverage (previously only exercised indirectly); a genuinely clean venv's
+`pip install -r requirements.txt` + the README's exact verify-install command both
+succeeded (one caveat noted, not a failure: `libsumo` itself isn't pinned, so a truly clean
+install silently falls back to subprocess-based `traci`). Four new permanent tests added:
+`tests/test_exception_safety.py`, `test_mplight_lr.py`, `test_repeat_seed_replay.py`, plus
+new coverage in `test_icm.py`.
+
+**Part B** applies five items the repo owner confirmed directly against the submitted
+manuscript text (not the audit brief's paraphrase) — no longer ambiguous disputes:
+
+- **B1** (Section 2.3): incident start-time upper bound `end_time − 500` → `end_time − 1200`.
+- **B2** (Section 3.5): `warmup` `0` → `100` in all 10 `map_config.py` network entries
+  (confirmed uniform — every entry is a 3600s episode, matching the manuscript's blanket
+  statement).
+- **B3** (Section 2.4.2): `slow_zone_speed` `1.39` → `2.2352` m/s (exact 5 mph conversion),
+  also fixing the stale comment that didn't match either the old or new value. Reverts the
+  uncommitted WIP edit found at the very start of this audit back to the paper-correct
+  value.
+- **B4** (Section 3.4, "averaged over five random seeds"): the RL agents' exploration
+  policies (`IDQN`/`MPLight`'s `DQNAgent` explorer, `FMA2C`'s `MA2CAgent` action sampling)
+  now draw from an independent `np.random.default_rng()` `Generator`
+  (`main.py`: `agt_config['exploration_rng']`) instead of the global `numpy` RNG that
+  `Initializer.random()` reseeds every episode — decoupling "which incidents occur" from
+  "how the agent explores," as the paper's per-seed-reproducible methodology implies they
+  should be. SUMO-level `--seed` itself was already implemented in earlier rounds. **This is
+  a deliberate methodology change, not a bug fix** — it changes simulation/training output
+  relative to the prior entangled/unseeded behavior, which is expected and correct, not a
+  regression. New test: `tests/test_rng_independence.py`, which interleaves the *real*
+  `Initializer` reseeding with *real* `DQNAgent` explorer draws (not a simulation) and
+  confirms independence, plus same-seed reproducibility and different-seed divergence.
+  Live-reverified end-to-end: `IDQN` and `MPLight` (the more heavily modified,
+  shared-explorer path) both trained cleanly with the new RNG threading, no errors, no
+  lingering processes.
+- **B5** (Section 2.3, "the 10-meter buffer at each end prevents bugs in SUMO"): confirms
+  round 4's 20m short-edge exclusion threshold is consistent with the manuscript's own
+  stated reasoning. No code change — this closes the item, it doesn't change anything.
+
+Every "Needs owner decision" item from rounds 2-4 is now either resolved (B1-B5) or has new
+evidence narrowing it (the `arterial4x4`/`arterial5x5` question); see `AUDIT_REPORT.md`'s
+consolidated table for the current, complete list of what's still open (down to two items:
+`arterial4x4`/`arterial5x5` retention, and the uncommitted `IC` vType edits' intent).
 
 ## Round 4 — verification, attribution, and one real bug
 

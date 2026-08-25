@@ -50,6 +50,12 @@ class DQNAgent(Agent):
     def __init__(self, config, act_space, model, num_agents=0, lr=0.001):
         super().__init__()
 
+        # Independent RNG for exploration, decoupled from the global numpy RNG
+        # Initializer.random() reseeds every episode (T_REX.py) -- see main.py, which
+        # threads this through config['exploration_rng']. Falls back to a fresh, unseeded
+        # Generator when constructed directly (e.g. in tests) without going through main.py.
+        self.rng = config.get('exploration_rng') or np.random.default_rng()
+
         self.model = model
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         replay_buffer = replay_buffers.ReplayBuffer(10000)
@@ -59,14 +65,15 @@ class DQNAgent(Agent):
                 config['EPS_START'],
                 config['EPS_END'],
                 num_agents*config['steps'],
-                lambda: np.random.randint(act_space),
+                lambda: self.rng.integers(act_space),
+                rng=self.rng,
             )
         else:
             explorer = explorers.LinearDecayEpsilonGreedy(
                 config['EPS_START'],
                 config['EPS_END'],
                 config['steps'],
-                lambda: np.random.randint(act_space),
+                lambda: self.rng.integers(act_space),
             )
 
         if num_agents > 0:
@@ -163,8 +170,8 @@ class SharedDQN(DQN):
         return valid_batch_action
 
 
-def select_action_epsilon_greedily(epsilon, random_action_func, greedy_action_func):
-    if np.random.rand() < epsilon:
+def select_action_epsilon_greedily(epsilon, random_action_func, greedy_action_func, rng):
+    if rng.random() < epsilon:
         return random_action_func(), False
     else:
         return greedy_action_func(), True
@@ -172,14 +179,19 @@ def select_action_epsilon_greedily(epsilon, random_action_func, greedy_action_fu
 
 class SharedEpsGreedy(explorers.LinearDecayEpsilonGreedy):
 
+    def __init__(self, *args, rng=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # See DQNAgent.__init__'s comment on why this is independent of the global RNG.
+        self.rng = rng if rng is not None else np.random.default_rng()
+
     def select_action(self, t, greedy_action_func, action_value=None, num_acts=None):
         self.epsilon = self.compute_epsilon(t)
         if num_acts is None:
             fn = self.random_action_func
         else:
-            fn = lambda: np.random.randint(num_acts)
+            fn = lambda: self.rng.integers(num_acts)
         a, greedy = select_action_epsilon_greedily(
-            self.epsilon, fn, greedy_action_func
+            self.epsilon, fn, greedy_action_func, self.rng
         )
         greedy_str = "greedy" if greedy else "non-greedy"
         self.logger.debug("t:%s a:%s %s", t, a, greedy_str)

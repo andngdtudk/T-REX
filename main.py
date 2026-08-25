@@ -166,6 +166,17 @@ def run_trial(args, trial):
         for key in env.obs_shape
     }
 
+    # Independent RNG for the RL agent's own exploration policy (epsilon-greedy action
+    # selection in IDQN/MPLight, on-policy action sampling in FMA2C), separate from the
+    # global numpy RNG that Initializer.random() reseeds every episode (T_REX.py). Without
+    # this, "which incidents occur" and "how the agent explores" shared one RNG stream, so
+    # changing one could silently perturb the other in a way not attributable to --seed
+    # itself -- the paper's five-seeds-averaged methodology (Section 3.4) implies these
+    # should be separable. Uses the same --seed value (safe: np.random.default_rng's PCG64
+    # and the legacy global Mersenne-Twister API are different algorithms even given an
+    # identical seed value, so there's no risk of correlation from sharing the number).
+    agt_config['exploration_rng'] = np.random.default_rng(args.seed)
+
     if alg.__name__ in {'MPLight', 'IDQN'}:
         lr = resolve_learning_rate(alg.__name__, args.map, override=args.lr)
         agent = alg(agt_config, obs_act, args.map, trial, lr=lr) if lr is not None else \
