@@ -23,11 +23,13 @@ degrades when the network is disrupted.
 > under Incidents: A Comparative Study"* (see [Citation](#citation)).
 
 **Before you rely on any number this repository produces**, read
-[`AUDIT_REPORT.md`](AUDIT_REPORT.md) — an independent code audit. It also documents a
-handful of paper-vs-code numeric mismatches (e.g. the incident start-time sampling window,
-warm-up duration, SUMO seed control) that are flagged for the repo owner's decision rather
-than silently resolved one way or the other; check there before assuming a given run
-reproduces a specific published number.
+[`AUDIT_REPORT.md`](AUDIT_REPORT.md) — an independent, six-round code audit. The paper-vs-code
+numeric discrepancies it originally flagged (incident start-time sampling window, warm-up
+duration, `slow_zone_speed`, SUMO/RL-exploration seed control) have since been confirmed
+against the manuscript directly by the repo owner and fixed; the report's "Needs owner
+decision" section is now down to two repo-policy items with no effect on reproducing
+published numbers. Still worth reading before assuming a given run reproduces a specific
+result — it also documents every bug found and fixed along the way.
 
 ## Key features
 
@@ -106,9 +108,13 @@ python -m venv .venv && source .venv/bin/activate   # or: conda create -n trex p
 pip install -r requirements.txt
 ```
 
-To run libsumo (faster, single-process SUMO) instead of TraCI, set
+To run libsumo (faster, in-process SUMO) instead of subprocess-based TraCI, set
 `LIBSUMO_AS_TRACI=1` in your environment and pass `--libsumo True` to `main.py`
-(this is `main.py`'s default).
+(this is `main.py`'s default). `libsumo` is pinned in `requirements.txt`, so a normal
+install gets it automatically; `main.py` logs which backend actually ended up active
+(`TraCI backend in use: libsumo (in-process)` / `traci (subprocess)`) at startup, since
+`LIBSUMO_AS_TRACI` being set doesn't by itself guarantee `libsumo` is installed — if it
+silently falls back, that log line is how you'd notice.
 
 ### 3. RESCO
 
@@ -153,12 +159,13 @@ python main.py --agent MAXPRESSURE --map grid4x4 --eps 10 --strategy 2 --libsumo
 `--strategy 1` constructs `TrexEnv(incident_config=None)` (no incidents); `--strategy 2`
 constructs `TrexEnv(incident_config=IncidentConfig(level=2))` with randomly sampled
 incidents each episode — one environment class either way, see Architecture above.
-`--seed` (default `42`) seeds Python's `random`,
-`numpy`, `torch`, and SUMO's own `--seed` (offset per episode) for a fully reproducible run;
-pass `--no-seed-sumo` to fall back to SUMO's unseeded `--random` while still seeding
-Python/numpy/torch. **`--strategy 3` ("curriculum") is present in the CLI help text but not
-yet implemented — it raises `NotImplementedError` rather than running; see `AUDIT_REPORT.md`
-Section 2.6b.**
+`--seed` (default `42`) seeds Python's `random`, `numpy`, `torch`, SUMO's own `--seed`
+(offset per episode), and — separately — an independent RNG for the RL agent's own
+exploration policy, decoupled from the RNG the incident sampler reseeds every episode (see
+[Reproducibility](#reproducibility) below). Pass `--no-seed-sumo` to fall back to SUMO's
+unseeded `--random` while still seeding everything else. **`--strategy 3` ("curriculum") is
+present in the CLI help text but not yet implemented — it raises `NotImplementedError`
+rather than running.**
 
 Swap `--agent` for any of `STOCHASTIC`, `MAXWAVE`, `MAXPRESSURE`, `IDQN`, `IPPO`, `MPLight`,
 `FMA2C`, and `--map` for `grid4x4`, `arterial4x4`, `ingolstadt1/7/21`, `cologne1/3/8`.
@@ -204,13 +211,37 @@ each experiment corresponds to a particular combination of CLI flags:
 The paper's results are averaged over 5 random seeds — run each configuration with 5
 different `--seed` values (e.g. `0`–`4`) and average externally.
 
-**Remaining reproducibility caveats** (see `AUDIT_REPORT.md` for the full analysis — do not
-treat this table as a guarantee that these commands reproduce the paper's published
-numbers): the per-network learning-rate defaults from Appendix B are only wired up for
-IDQN/MPLight (`TREX_comp/config/hyperparams.py`); and a handful of paper-vs-code numeric
-mismatches (incident start-time sampling window, warm-up duration, `slow_zone_speed`) are
-flagged in `AUDIT_REPORT.md` under "Needs owner decision" rather than resolved one way or
-the other, since only someone with the manuscript in hand can say which side is correct.
+**Known limitation, not a reproducibility issue**: the per-network learning-rate defaults
+from Appendix B are only wired up for IDQN/MPLight (`TREX_comp/config/hyperparams.py`);
+IPPO/FMA2C's hyperparameters live inline in their agent code instead of a per-network
+config table — see `AUDIT_REPORT.md` for details. Separately, `--eps 1` (or any `--eps`
+where `int(eps * 0.8) == 0`) crashes IDQN with a `ZeroDivisionError` inside its exploration
+schedule — a pre-existing edge case in the train/test episode split, not something this
+audit's changes introduced; use `--eps 2` or higher.
+
+## Reproducibility
+
+Every source of randomness in a training/eval run is now seed-controlled from one `--seed`
+value, each independently of the others:
+
+- **Incident sampling** (`Initializer`) — reseeds a global `numpy` RNG from a value derived
+  from `--seed` at the start of each episode.
+- **SUMO's own vehicle-level stochasticity** — `--seed <value + episode offset>` is passed
+  to SUMO directly (instead of `--random`); pass `--no-seed-sumo` to opt back into SUMO's
+  unseeded default.
+- **RL agent exploration** (IDQN, MPLight, FMA2C) — draws from an independent
+  `np.random.default_rng(seed)` `Generator`, decoupled from the incident sampler's RNG
+  above, so reseeding one can't silently perturb the other. For IDQN and MPLight this covers
+  the *entire* exploration decision (both the epsilon-vs-greedy coin flip and the resulting
+  random action); see `AUDIT_REPORT.md` for how this was verified against the real
+  production code paths, not assumed from the underlying library's documentation.
+- **PyTorch/TensorFlow** model initialization — seeded via `torch.manual_seed(--seed)`.
+
+Given the same `--seed`, a run is fully reproducible end to end; different seeds produce
+genuinely different (but each internally reproducible) incident placement, SUMO vehicle
+behavior, and agent exploration. See `AUDIT_REPORT.md`'s "Round 5 — Part B4" / "Round 6"
+sections for the manuscript citation motivating this (Section 3.4, "averaged over five
+random seeds") and the live/test evidence behind each claim above.
 
 ## Configuring incidents
 
@@ -246,6 +277,15 @@ vehicle, roadworks, speed-reduction/environmental, signal malfunction). Any of t
 single-lane blockage for a stalled vehicle), but there's no code-level switch to pick
 between them — see `AUDIT_REPORT.md` Section 2.4b.
 
+**Teleport exemption**: SUMO's default behavior is to "teleport" (remove and respawn) a
+vehicle that's been stuck too long, which would otherwise silently un-block an incident or
+erase a genuinely-queued vehicle from the simulation. Every incident-capable network's
+`.add.xml` defines a `CAV4` vType (`timeToTeleport="-1"`) that queued vehicles are switched
+to for the duration they're blocked, and an `IC` vType (also `timeToTeleport="-1"`) for the
+incident's own blocking vehicle — this works identically across all 8 supported networks,
+not just `ingolstadt21` where it was first implemented; see `AUDIT_REPORT.md` for the
+per-network verification.
+
 ## Repository structure
 
 ```
@@ -277,13 +317,21 @@ CHANGELOG.md                What changed in the audit, by phase
 
 ## Supported networks
 
+All 8 below work with both `--strategy 1` (base) and `--strategy 2` (incidents), including
+the `CAV4`/`IC` teleport exemption described above.
+
 | Network | Source |
 |---|---|
-| `grid4x4` | Synthetic 4×4 grid, 16 intersections |
-| `arterial4x4` | Synthetic 4×4 arterial network (from RESCO's benchmark suite; not one of the paper's four evaluation networks) |
-| `cologne3` (Corridor) / `cologne8` (Region) | [TAPAS Cologne](https://sumo.dlr.de/docs/Data/Scenarios/TAPASCologne.html) |
-| `ingolstadt7` (Corridor) / `ingolstadt21` (Region) | [InTAS](https://github.com/silaslobo/InTAS) |
-| `cologne1`, `ingolstadt1` | Single-intersection reductions of the above, useful for quick local testing |
+| `grid4x4` | Synthetic 4×4 grid, 16 intersections — one of the paper's four evaluation networks |
+| `cologne3` (Corridor) / `cologne8` (Region) | [TAPAS Cologne](https://sumo.dlr.de/docs/Data/Scenarios/TAPASCologne.html) — paper evaluation networks |
+| `ingolstadt7` (Corridor) / `ingolstadt21` (Region) | [InTAS](https://github.com/silaslobo/InTAS) — paper evaluation networks |
+| `cologne1`, `ingolstadt1` | Single-intersection reductions of the above, useful for quick local testing; not used in the paper |
+| `arterial4x4` | Synthetic 4×4 arterial network, from RESCO's benchmark suite — **retained in the repo but not part of the paper's published experiments** (confirmed against the manuscript; kept for extensibility, not evidence of paper coverage) |
+
+`arterial5x5`/`turin5` also appear in `TREX_comp/config/map_config.py` but aren't reachable
+via `--map` (not in `main.py`'s argparse choices) and ship with no network data —
+inherited-but-unused RESCO config, not a usable network; see `AUDIT_REPORT.md` if you want
+to resurrect one.
 
 To add a new network: add a `.sumocfg`/`.net.xml` (+ `.add.xml` if you need incident vTypes
 like `CAV1`/`CAV3`/`IC`) under `environments/<name>/`, and an entry in
