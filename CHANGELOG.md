@@ -6,6 +6,52 @@ Changes made on the `audit/code-quality-and-docs` branch, grouped by audit phase
 reason). Nothing in the scientific formulas — metric definitions, ICM/SSD equations,
 incident sampling distributions, RL reward/observation functions — was altered.
 
+## Round 2 — follow-up to round 1's flagged items
+
+Round 1 flagged several items rather than guessing; round 2 resolves the ones that had a
+clear, safe answer and re-verifies the rest live rather than assuming they're fixed.
+
+- **Incident-probability CSVs restored** (`Ing21_prob.csv`, `Ing7_prob.csv`, `Col3_prob.csv`,
+  `Col8_prob.csv`) — moved into their respective `environments/<network>/` directories
+  (they arrived at repo root) and `Initializer.__init__` now resolves them relative to the
+  network's own directory instead of the process's CWD (a bare filename would only have
+  worked if `main.py` happened to be launched from the exact directory containing them).
+  Re-verified live: all four real-world networks (cologne3, cologne8, ingolstadt7,
+  ingolstadt21) get past the incident-sampling step now.
+- **Metrics (LSI/FPD/CR/AUC/RAUC/PDI) reclassified from "critical gap" to "by design, out
+  of scope"** per repo-owner clarification: they're computed by a separate downstream
+  analysis pipeline, not part of T-REX. `AUDIT_REPORT.md` and a new README "Metrics &
+  analysis" section now document exactly what T-REX itself logs per episode
+  (`metrics_<run>.csv`, `tripinfo_<run>.xml`) instead.
+- **CAV4 teleport-exemption vType generalized to all six incident-capable networks**
+  (previously only `ingolstadt21`) — uncommented/added the identical
+  `<vType id="CAV4" .../>` definition already working there to `grid4x4`, `arterial4x4`,
+  `cologne3`, `cologne8`, `ingolstadt7`. Added `tests/test_incident_vtypes.py`, which parses
+  every incident-capable network's `.add.xml` (no SUMO needed) and fails if any of them is
+  missing an active CAV4 vType, so this can't silently regress to one-network-only again.
+  Re-verified live on all four real-world networks: none crash on `TraCIException:
+  Vehicle type 'CAV4' is not known` anymore.
+- **`--strategy 3` ("curriculum")** now raises a clear `NotImplementedError` instead of
+  crashing opaquely inside `IncidentEnv` with `TypeError: 'NoneType' object cannot be
+  interpreted as an integer`; `argparse` and the README mark it "planned, not yet
+  implemented" rather than listing it as supported.
+- **End-to-end SUMO seed control added**: `--seed` (default `42`) now seeds Python's
+  `random`, `numpy`, and `torch`, and is threaded through to `BaseEnv`/`IncidentEnv`, which
+  launch SUMO with `--seed <seed + episode_number>` instead of always `--random`.
+  `--no-seed-sumo` restores the old `--random` SUMO behavior while still seeding
+  Python/numpy/torch. Verified live: two independent runs with `--seed 7` produce
+  bit-identical incident sampling. The deeper RNG-architecture question (the RL agents'
+  exploration policies sharing the same global numpy RNG that `Initializer` reseeds every
+  episode) is a separate, larger change and was **not** touched here.
+- **Added a "Needs owner decision" table** in `AUDIT_REPORT.md` for the three items that
+  genuinely can't be resolved without the manuscript: the incident start-time sampling
+  upper bound (`end_time−500` vs. the paper's `end_time−1200`), `warmup=0` in every network
+  config, and the `slow_zone_speed` value contradicting its own inline comment. None of
+  these were changed.
+- 31/31 tests pass (up from 19: +6 CAV4-vtype regression tests, one per incident-capable
+  network, +6 SUMO seed-arg tests). All five smoke-tested networks (grid4x4 + the four
+  real-world networks) run `--strategy 1` and `--strategy 2` end-to-end without a traceback.
+
 ## Phase 1 — Repository hygiene
 
 - Added `.gitignore` (Python bytecode, SUMO run artifacts, editor/OS files, decompressed
