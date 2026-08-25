@@ -107,14 +107,23 @@ enabling/disabling incidents doesn't silently change anything else about the sim
    and only passed to SUMO when `enable_incidents`), since always loading it in the "off"
    mode would be a genuine behavioral change to base-scenario vehicle dynamics, not just a
    cosmetic one.
-4. **Preserved, not converged — the global `--time-to-teleport` flag.** Pre-merge `BaseEnv`
-   unconditionally passed `--time-to-teleport -1` (global teleport disabled for every
-   vehicle); pre-merge `IncidentEnv` did not (superseded by the per-vehicle `CAV4` teleport
-   exemption mechanism added earlier in this audit, which only makes sense when incidents
-   exist to queue vehicles behind). `TrexEnv._seed_and_teleport_args()` keeps this
-   conditional on `enable_incidents` for the same reason as item 3 — this materially affects
-   simulation dynamics (whether gridlocked vehicles ever get teleported away), not just log
-   formatting.
+4. **Initially preserved per-mode, then removed entirely per repo-owner decision — the
+   global `--time-to-teleport` flag.** Pre-merge `BaseEnv` unconditionally passed
+   `--time-to-teleport -1` (global teleport disabled for every vehicle); pre-merge
+   `IncidentEnv` did not (superseded by the per-vehicle `CAV4` teleport exemption mechanism
+   added earlier in this audit). `TrexEnv` initially kept this conditional on
+   `enable_incidents`, matching each original exactly, on the reasoning that it materially
+   affects simulation dynamics and so shouldn't be silently converged. The repo owner then
+   clarified: since `CAV4`'s per-vehicle exemption already covers the case a blanket
+   override was for (a vehicle genuinely stuck behind a blocked lane), the global flag in the
+   "incidents off" path was only ever inherited legacy behavior, not a deliberate
+   requirement — so `TrexEnv._seed_args()` now passes neither `--seed`-adjacent teleport
+   flag in either mode. Re-verified live: `tests/test_env_unification.py` still passes 3/3
+   after this change (no vehicle in the test's short 3-step episode plausibly hits SUMO's
+   default ~300s teleport timeout either way) — confirmed empirically, not just assumed. A
+   materially longer or more congested episode could in principle show a difference between
+   pre-merge `BaseEnv` and `TrexEnv(incident_config=None)` here; that's now an accepted,
+   deliberate behavior change, not a bug to chase.
 5. **Preserved (functionally equivalent either way) — phase-string filtering.** Pre-merge
    `BaseEnv` checked `"y" not in p.state` (no `.lower()`); pre-merge `IncidentEnv` checked
    `"y" not in p.state.lower()`. SUMO phase-state strings only ever use lowercase `y`/`g` and

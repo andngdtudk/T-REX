@@ -44,11 +44,18 @@ class TrexEnv(gym.Env):
 
     A handful of other behaviors differed between the old `BaseEnv`/
     `IncidentEnv` beyond the incident subsystem itself -- whether the
-    network's `.add.xml` (vType definitions) is loaded, and SUMO's global
-    `--time-to-teleport` flag. These are preserved exactly per mode below
-    (see `_seed_and_teleport_args`/`_build_sumo_command`) rather than
+    network's `.add.xml` (vType definitions) is loaded, most notably. That is
+    preserved exactly per mode below (see `_build_sumo_command`) rather than
     converged, so that toggling `incident_config` doesn't silently change
-    anything else about the simulation. One genuine bug found while
+    anything else about the simulation. SUMO's global `--time-to-teleport`
+    flag, which *did* also differ between the two originals, is deliberately
+    NOT preserved per-mode: neither mode passes it anymore (see
+    `_seed_args`) -- with the CAV4 per-vehicle teleport exemption already
+    handling the case incidents actually need (a vehicle genuinely queued
+    behind a blocked lane), a blanket global override serves no purpose in
+    either mode and was only still present in the "incidents off" path as
+    inherited legacy behavior from the original `BaseEnv`, not a deliberate
+    requirement. One genuine bug found while
     diffing the two originals *was* fixed here (not preserved): `BaseEnv`
     built route-based `-r` paths as `self.route + '_N.rou.xml'` (a flat
     file-prefix convention) while `IncidentEnv` and `main.py`'s own
@@ -151,26 +158,25 @@ class TrexEnv(gym.Env):
         cmd += ['--no-warnings', 'True']
         return cmd
 
-    def _seed_and_teleport_args(self):
-        """SUMO CLI args controlling RNG seeding and the teleport timeout.
+    def _seed_args(self):
+        """SUMO CLI args controlling vehicle-level RNG seeding for the current episode.
 
         --seed makes the run reproducible; --random (the pre-audit default)
         does not. The per-episode offset (self.run) means each episode
         within one env instance still gets a distinct seed.
 
-        Teleport handling differs by mode, preserved from the pre-refactor
-        originals: with incidents disabled, SUMO's global teleport timeout
-        is unconditionally turned off (--time-to-teleport -1), matching the
-        old BaseEnv. With incidents enabled, the global timeout is left at
-        SUMO's default and only vehicles genuinely queued behind an active
-        incident are exempted per-vehicle (see
-        T_REX.py::Deployment.manage_incident_queue_teleport_exemption),
-        matching the old IncidentEnv.
+        Neither mode passes --time-to-teleport: SUMO's global teleport
+        timeout is left at its default in both. With incidents enabled, only
+        vehicles genuinely queued behind an active incident are exempted
+        per-vehicle (see
+        T_REX.py::Deployment.manage_incident_queue_teleport_exemption) --
+        that already covers the case a blanket override was for, so a global
+        --time-to-teleport -1 (which the pre-refactor BaseEnv passed
+        unconditionally) serves no purpose in either mode.
         """
-        args = ['--random'] if self.sumo_seed is None else ['--seed', str(self.sumo_seed + self.run)]
-        if not self.enable_incidents:
-            args += ['--time-to-teleport', '-1']
-        return args
+        if self.sumo_seed is None:
+            return ['--random']
+        return ['--seed', str(self.sumo_seed + self.run)]
 
     def _initialize_sumo(self):
         sumo_cmd = self._build_sumo_command()
@@ -275,7 +281,7 @@ class TrexEnv(gym.Env):
 
         if self.enable_incidents:
             self.sumo_cmd += ['--additional-files', self.additional]
-        self.sumo_cmd += self._seed_and_teleport_args()
+        self.sumo_cmd += self._seed_args()
         self.sumo_cmd += [
             '--tripinfo-output', os.path.join(self.log_dir, self.connection_name, f'tripinfo_{self.run}.xml'),
             '--tripinfo-output.write-unfinished',

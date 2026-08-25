@@ -20,6 +20,19 @@ reproducing it, which is itself verified by test_grid4x4_base_scenario_works
 below (a regression test for the fix, since there is no old behavior to
 match here -- only that it no longer crashes).
 
+The "off" comparison has two known, intentional, non-preserved differences from
+pre-merge BaseEnv (see AUDIT_REPORT.md): a cosmetic save_metrics formatting
+difference (normalized before comparing, see _read_metrics), and pre-merge
+BaseEnv unconditionally passing --time-to-teleport -1 while TrexEnv passes it
+in neither mode (CAV4's per-vehicle exemption already covers what a global
+override was for -- see trex_env.py::TrexEnv._seed_args). The latter is not
+normalized because it isn't expected to be observable over this test's short
+episode (no vehicle plausibly hits SUMO's default ~300s teleport timeout in a
+handful of steps) -- confirmed empirically by this test still passing after
+that flag was removed, not just assumed safe. A materially longer/more
+congested episode could in principle show a difference here; that's an
+accepted, deliberate behavior change, not a bug.
+
 Requires a working SUMO installation; skipped otherwise.
 """
 import importlib.util

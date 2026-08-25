@@ -41,11 +41,17 @@ route-based network. `TrexEnv` uses the working (subdirectory) convention for bo
 
 **Other edge cases found and intentionally handled** (full detail in `AUDIT_REPORT.md`):
 `save_metrics`'s CSV formatting differed by one trailing-comma byte between the two
-originals (unified onto the cleaner format); additional-file loading and the global
-`--time-to-teleport` flag genuinely differ by design between incidents-on/off and are kept
-that way, not converged; phase-string filtering and results-directory path construction
-differed cosmetically between the originals with no observed effect (confirmed by the
-regression test), and were unified for cleanliness.
+originals (unified onto the cleaner format); additional-file loading genuinely differs by
+design between incidents-on/off and is kept that way, not converged; phase-string filtering
+and results-directory path construction differed cosmetically between the originals with no
+observed effect (confirmed by the regression test), and were unified for cleanliness.
+
+**Follow-up**: `--time-to-teleport -1` (initially kept conditional on `incident_config`,
+matching each pre-merge original exactly) has been removed from both modes per repo-owner
+direction — `CAV4`'s per-vehicle teleport exemption already covers what the blanket global
+override was for, so it served no purpose even in the "incidents off" path where it was only
+ever inherited legacy `BaseEnv` behavior. Re-verified live: the regression test suite still
+passes 3/3 after this change.
 
 ## Round 2 — follow-up to round 1's flagged items
 
