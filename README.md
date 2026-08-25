@@ -22,15 +22,6 @@ degrades when the network is disrupted.
 > Companion code for *"Robustness of Reinforcement Learning-Based Traffic Signal Control
 > under Incidents: A Comparative Study"* (see [Citation](#citation)).
 
-**Before you rely on any number this repository produces**, read
-[`AUDIT_REPORT.md`](AUDIT_REPORT.md) — an independent, six-round code audit. The paper-vs-code
-numeric discrepancies it originally flagged (incident start-time sampling window, warm-up
-duration, `slow_zone_speed`, SUMO/RL-exploration seed control) have since been confirmed
-against the manuscript directly by the repo owner and fixed; the report's "Needs owner
-decision" section is now down to two repo-policy items with no effect on reproducing
-published numbers. Still worth reading before assuming a given run reproduces a specific
-result — it also documents every bug found and fixed along the way.
-
 ## Key features
 
 - **Incident-aware simulation** — inject a lane-blocking incident at a chosen or randomly
@@ -77,9 +68,8 @@ simulation step. `main.py` selects `IncidentConfig` vs. `None` from the existing
 
 > `base_env.py`/`incident_env.py` (the pre-refactor `BaseEnv`/`IncidentEnv` classes) still
 > work as thin, deprecated wrappers around `TrexEnv` for backward compatibility, but new code
-> should use `TrexEnv` directly. See `trex_env.py`'s docstring and `AUDIT_REPORT.md` for what
-> changed when they were merged (one real bug fixed: `BaseEnv`'s route-file path construction
-> didn't match `IncidentEnv`'s/`main.py`'s, and was broken on `grid4x4`/`arterial4x4`).
+> should use `TrexEnv` directly — see `trex_env.py`'s docstring for what changed when they
+> were merged.
 
 ## Installation
 
@@ -214,7 +204,7 @@ different `--seed` values (e.g. `0`–`4`) and average externally.
 **Known limitation, not a reproducibility issue**: the per-network learning-rate defaults
 from Appendix B are only wired up for IDQN/MPLight (`TREX_comp/config/hyperparams.py`);
 IPPO/FMA2C's hyperparameters live inline in their agent code instead of a per-network
-config table — see `AUDIT_REPORT.md` for details. Separately, `--eps 1` (or any `--eps`
+config table. Separately, `--eps 1` (or any `--eps`
 where `int(eps * 0.8) == 0`) crashes IDQN with a `ZeroDivisionError` inside its exploration
 schedule — a pre-existing edge case in the train/test episode split, not something this
 audit's changes introduced; use `--eps 2` or higher.
@@ -233,15 +223,13 @@ value, each independently of the others:
   `np.random.default_rng(seed)` `Generator`, decoupled from the incident sampler's RNG
   above, so reseeding one can't silently perturb the other. For IDQN and MPLight this covers
   the *entire* exploration decision (both the epsilon-vs-greedy coin flip and the resulting
-  random action); see `AUDIT_REPORT.md` for how this was verified against the real
-  production code paths, not assumed from the underlying library's documentation.
+  random action).
 - **PyTorch/TensorFlow** model initialization — seeded via `torch.manual_seed(--seed)`.
 
 Given the same `--seed`, a run is fully reproducible end to end; different seeds produce
 genuinely different (but each internally reproducible) incident placement, SUMO vehicle
-behavior, and agent exploration. See `AUDIT_REPORT.md`'s "Round 5 — Part B4" / "Round 6"
-sections for the manuscript citation motivating this (Section 3.4, "averaged over five
-random seeds") and the live/test evidence behind each claim above.
+behavior, and agent exploration. Motivated by the paper's Section 3.4 methodology
+("averaged over five random seeds").
 
 ## Configuring incidents
 
@@ -275,16 +263,14 @@ distinguishing the five categories the paper's Table B1 describes (collision, st
 vehicle, roadworks, speed-reduction/environmental, signal malfunction). Any of those can be
 *represented* by the generic mechanism above (e.g. a full-width blockage for a collision, a
 single-lane blockage for a stalled vehicle), but there's no code-level switch to pick
-between them — see `AUDIT_REPORT.md` Section 2.4b.
+between them.
 
 **Teleport exemption**: SUMO's default behavior is to "teleport" (remove and respawn) a
 vehicle that's been stuck too long, which would otherwise silently un-block an incident or
 erase a genuinely-queued vehicle from the simulation. Every incident-capable network's
 `.add.xml` defines a `CAV4` vType (`timeToTeleport="-1"`) that queued vehicles are switched
 to for the duration they're blocked, and an `IC` vType (also `timeToTeleport="-1"`) for the
-incident's own blocking vehicle — this works identically across all 8 supported networks,
-not just `ingolstadt21` where it was first implemented; see `AUDIT_REPORT.md` for the
-per-network verification.
+incident's own blocking vehicle — this works identically across all 8 supported networks.
 
 ## Repository structure
 
@@ -311,8 +297,7 @@ tests/                      pytest unit tests (SSD, ICM, incident sampling, env-
                               regression) -- most need no SUMO; the unification regression
                               test and a live smoke test require it, and skip otherwise
 .github/workflows/ci.yml    CI: pytest (required) + ruff/black/isort (advisory)
-AUDIT_REPORT.md             Independent code audit: findings, fixes, and open issues
-CHANGELOG.md                What changed in the audit, by phase
+CHANGELOG.md                Notable changes, by version
 ```
 
 ## Supported networks
@@ -330,8 +315,7 @@ the `CAV4`/`IC` teleport exemption described above.
 
 `arterial5x5`/`turin5` also appear in `TREX_comp/config/map_config.py` but aren't reachable
 via `--map` (not in `main.py`'s argparse choices) and ship with no network data —
-inherited-but-unused RESCO config, not a usable network; see `AUDIT_REPORT.md` if you want
-to resurrect one.
+inherited-but-unused RESCO config, not a usable network as-is.
 
 To add a new network: add a `.sumocfg`/`.net.xml` (+ `.add.xml` if you need incident vTypes
 like `CAV1`/`CAV3`/`IC`) under `environments/<name>/`, and an entry in
