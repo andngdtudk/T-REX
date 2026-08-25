@@ -2,7 +2,11 @@ import os
 import argparse
 import logging
 import multiprocessing as mp
+import random
 from collections import deque
+
+import numpy as np
+import torch
 
 from TREX_comp.config.agent_config import agent_configs
 from TREX_comp.config.map_config import map_configs
@@ -44,14 +48,26 @@ def parse_arguments():
     parser.add_argument("--seps", type=int, default=0, help="Episode to start from when resuming training.")
     parser.add_argument("--load", type=bool, default=False, help="Whether to load a saved model.")
 
-    parser.add_argument("--strategy", type=int, default=2,
-                        help="Training strategy: 1 = base, 2 = incident, 3 = curriculum.")
+    parser.add_argument("--strategy", type=int, default=2, choices=[1, 2, 3],
+                        help="Training strategy: 1 = base, 2 = incident, "
+                             "3 = curriculum (planned, not yet implemented).")
     parser.add_argument("--repeat", type=int, default=0,
                         help="How many episodes to repeat incidents from training in testing.")
     parser.add_argument("--lr", type=float, default=None,
                         help="Learning rate for the agent. Defaults to the per-network/per-agent "
                              "value in TREX_comp/config/hyperparams.yaml (Appendix B) when omitted.")
     parser.add_argument("--verbose", action="store_true", help="Enable DEBUG-level logging.")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Base random seed, applied to Python's random, numpy, torch, "
+                             "and SUMO (each episode gets seed+episode_index passed to SUMO's "
+                             "--seed, instead of --random, for reproducibility). The paper's "
+                             "results are averaged over 5 seeds -- run this flag with 5 "
+                             "different values (e.g. 0-4) and average externally to reproduce "
+                             "that. Pass --no-seed-sumo to fall back to SUMO's own --random "
+                             "instead (Python/numpy/torch are still seeded either way).")
+    parser.add_argument("--no-seed-sumo", action="store_true",
+                        help="Launch SUMO with --random instead of a derived --seed "
+                             "(pre-audit behavior). Python/numpy/torch are still seeded by --seed.")
 
     return parser.parse_args()
 
@@ -63,8 +79,18 @@ def main():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
     if args.libsumo and 'LIBSUMO_AS_TRACI' not in os.environ:
         raise EnvironmentError("Set LIBSUMO_AS_TRACI to a nonempty value to enable libsumo.")
+
+    if args.strategy == 3:
+        raise NotImplementedError(
+            "--strategy 3 (curriculum) is planned but not yet implemented. "
+            "Use --strategy 1 (base) or --strategy 2 (incident)."
+        )
 
     if args.procs == 1 or args.libsumo:
         run_trial(args, args.tr)
@@ -116,7 +142,8 @@ def run_trial(args, trial):
         libsumo=args.libsumo,
         warmup=map_config['warmup'],
         run=args.seps,
-        level=2 if args.strategy == 2 else None
+        level=2 if args.strategy == 2 else None,
+        sumo_seed=None if args.no_seed_sumo else args.seed,
     )
 
     # === Agent Setup ===

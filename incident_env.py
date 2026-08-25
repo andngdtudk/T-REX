@@ -15,7 +15,13 @@ class IncidentEnv(gym.Env):
 
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False,
                  end_time=3600, step_length=10, yellow_length=4, step_ratio=1,
-                 max_distance=300, lights=(), log_dir='/', libsumo=False, warmup=100, gymma=False, run=0, level=2):
+                 max_distance=300, lights=(), log_dir='/', libsumo=False, warmup=100, gymma=False, run=0, level=2,
+                 sumo_seed=None):
+
+        # sumo_seed: base seed passed to SUMO's --seed (offset by episode number each
+        # reset()) for reproducible vehicle-level stochasticity. None preserves the
+        # pre-audit behavior of launching SUMO with --random (unseeded) instead.
+        self.sumo_seed = sumo_seed
 
         # === Basic setup ===
         self.run = run
@@ -93,6 +99,17 @@ class IncidentEnv(gym.Env):
                 '-a', self.additional,
                 '--no-warnings', 'True'
             ]
+
+    def _seed_args(self):
+        """SUMO CLI args controlling vehicle-level RNG seeding for the current episode.
+
+        --seed makes the run reproducible; --random (the pre-audit default) does not.
+        The per-episode offset (self.run) means each episode within one env instance
+        still gets a distinct seed, rather than replaying the exact same episode.
+        """
+        if self.sumo_seed is None:
+            return ['--random']
+        return ['--seed', str(self.sumo_seed + self.run)]
 
     def _initialize_sumo(self):
         sumo_cmd = self._build_sumo_command()
@@ -196,9 +213,9 @@ class IncidentEnv(gym.Env):
         else:
             self.sumo_cmd += ['-c', self.net]
 
+        self.sumo_cmd += ['--additional-files', self.additional]
+        self.sumo_cmd += self._seed_args()
         self.sumo_cmd += [
-            '--additional-files', self.additional,
-            '--random',
             # '--time-to-teleport', '-1',
             '--tripinfo-output', os.path.join(self.log_dir, self.connection_name, f'tripinfo_{self.run}.xml'),
             '--tripinfo-output.write-unfinished',

@@ -15,7 +15,11 @@ logger = logging.getLogger(__name__)
 class BaseEnv(gym.Env):
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False, end_time=3600,
                  step_length=10, yellow_length=4, step_ratio=1, max_distance=200, lights=(), log_dir='/', libsumo=False,
-                 warmup=0, gymma=False, run=0, level=None):
+                 warmup=0, gymma=False, run=0, level=None, sumo_seed=None):
+        # sumo_seed: base seed passed to SUMO's --seed (offset by episode number each
+        # reset()) for reproducible vehicle-level stochasticity. None preserves the
+        # pre-audit behavior of launching SUMO with --random (unseeded) instead.
+        self.sumo_seed = sumo_seed
         self.libsumo = libsumo
         self.gymma = gymma  # gymma expects sequential list of states/rewards instead of dict
         logger.info(f"{map_name} {net} {state_fn.__name__} {reward_fn.__name__}")
@@ -106,6 +110,17 @@ class BaseEnv(gym.Env):
         self.sumo_cmd = None
         logger.info(f'Connection ID {self.connection_name}')
 
+    def _seed_args(self):
+        """SUMO CLI args controlling vehicle-level RNG seeding for the current episode.
+
+        --seed makes the run reproducible; --random (the pre-audit default) does not.
+        The per-episode offset (self.run) means each episode within one env instance
+        still gets a distinct seed, rather than replaying the exact same episode.
+        """
+        if self.sumo_seed is None:
+            return ['--random']
+        return ['--seed', str(self.sumo_seed + self.run)]
+
     def step_sim(self):
         # The monaco scenario expects .25s steps instead of 1s, account for that here.
         for _ in range(self.step_ratio):
@@ -133,7 +148,8 @@ class BaseEnv(gym.Env):
             self.sumo_cmd += ['-n', self.net, '-r', self.route + '_'+str(self.run)+'.rou.xml']
         else:
             self.sumo_cmd += ['-c', self.net]
-        self.sumo_cmd += ['--random', '--time-to-teleport', '-1', '--tripinfo-output',
+        self.sumo_cmd += self._seed_args()
+        self.sumo_cmd += ['--time-to-teleport', '-1', '--tripinfo-output',
                           os.path.join(self.log_dir, self.connection_name, 'tripinfo_' + str(self.run) + '.xml'),
                           '--tripinfo-output.write-unfinished',
                           '--no-step-log', 'True',
