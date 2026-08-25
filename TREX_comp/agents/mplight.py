@@ -33,7 +33,7 @@ class MPLight(SharedAgent):
         comp_mask = torch.from_numpy(comp_mask).to(self.device)
         self.valid_acts = signal_configs[map_name]['valid_acts']
         model = FRAP(config, num_actions, phase_pairs, comp_mask, self.device)
-        self.agent = DQNAgent(config, num_actions, model, num_agents=config['num_lights'], lr=0.005)
+        self.agent = DQNAgent(config, num_actions, model, num_agents=config['num_lights'], lr=lr)
         if self.config['load']:
             print('LOADING SAVED MODEL FOR EVALUATION')
             self.agent.load(self.config['log_dir'] + 'agent.pt')

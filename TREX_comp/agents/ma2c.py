@@ -105,6 +105,11 @@ else:
             self.config = config
             self.num_actions = num_actions
             self.sess = sess
+            # Independent RNG for exploration, decoupled from the global numpy RNG
+            # Initializer.random() reseeds every episode (T_REX.py); see
+            # pfrl_dqn.py::DQNAgent for the same pattern and main.py for where this
+            # is threaded from.
+            self.rng = config.get('exploration_rng') or np.random.default_rng()
 
             self.steps_done = 0
             self.state = None
@@ -126,7 +131,7 @@ else:
             self.state = observation
 
             policy, self.value = self.model.forward(observation, False)
-            self.action = np.random.choice(np.arange(len(policy)), p=policy)
+            self.action = self.rng.choice(np.arange(len(policy)), p=policy)
             self.fingerprint = np.array(policy)
 
             return self.action

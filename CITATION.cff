@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use T-REX in your research, please cite the paper below."
+title: "T-REX: A Framework for Benchmarking Traffic Signal Control Robustness under Incidents"
+type: software
+authors:
+  - family-names: Nguyen
+    given-names: "Dang Viet Anh"
+  - family-names: Azevedo
+    given-names: "Carlos Lima"
+  - family-names: Toledo
+    given-names: Tomer
+  - family-names: Rodrigues
+    given-names: Filipe
+repository-code: "https://github.com/andngdtudk/T-REX"
+license: MIT
+preferred-citation:
+  type: article
+  title: "Robustness of Reinforcement Learning-Based Traffic Signal Control under Incidents: A Comparative Study"
+  authors:
+    - family-names: Nguyen
+      given-names: "Dang Viet Anh"
+    - family-names: Azevedo
+      given-names: "Carlos Lima"
+    - family-names: Toledo
+      given-names: Tomer
+    - family-names: Rodrigues
+      given-names: Filipe
+  year: 2025
+  # This paper is submitted to European Transport Research Review (ETRR) and was not
+  # yet formally published at the time this file was written -- journal/volume/pages/DOI
+  # are TBD and should be filled in once assigned. The arXiv preprint below is the
+  # citable version in the meantime.
+  journal: "arXiv preprint"
+  identifiers:
+    - type: other
+      value: "arXiv:2506.13836"
+      description: "arXiv preprint"
+  url: "https://arxiv.org/abs/2506.13836"

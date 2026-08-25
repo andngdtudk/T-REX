@@ -1,4 +1,5 @@
 import os
+import logging
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -7,6 +8,9 @@ from resco_benchmark.config.map_config import map_configs
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # log_dir = os.path.join(os.path.dirname(os.path.dirname(os.getcwd())), 'results' + os.sep)
@@ -59,7 +63,7 @@ for metric in metrics:
                                 last_departure_time = depart_time
                                 last_depart_id = child.attrib['id']
                     except Exception as e:
-                        #raise e
+                        logger.warning(f"Stopped parsing tripinfo entries for run {i}: {e}")
                         break
                 route_file_name = env_base + map_name + os.sep + map_name + os.sep + map_name + '_' + str(i) + '.rou.xml'
 

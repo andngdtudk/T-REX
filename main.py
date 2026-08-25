@@ -1,16 +1,23 @@
 import os
 import argparse
+import logging
 import multiprocessing as mp
-from pathlib import Path
+import random
 from collections import deque
+
+import numpy as np
+import torch
+import traci
 
 from TREX_comp.config.agent_config import agent_configs
 from TREX_comp.config.map_config import map_configs
 from TREX_comp.config.mdp_config import mdp_configs
+from TREX_comp.config.hyperparams import resolve_learning_rate
+from TREX_comp.config.incident_config import DEFAULT_INCIDENTS, NO_INCIDENTS
 
-from incident_env import IncidentEnv
-from base_env import BaseEnv
+from trex_env import TrexEnv
 
+logger = logging.getLogger(__name__)
 
 
 def parse_arguments():
@@ -42,20 +49,58 @@ def parse_arguments():
     parser.add_argument("--seps", type=int, default=0, help="Episode to start from when resuming training.")
     parser.add_argument("--load", type=bool, default=False, help="Whether to load a saved model.")
 
-    parser.add_argument("--strategy", type=int, default=2,
-                        help="Training strategy: 1 = base, 2 = incident, 3 = curriculum.")
+    parser.add_argument("--strategy", type=int, default=2, choices=[1, 2, 3],
+                        help="Training strategy: 1 = base, 2 = incident, "
+                             "3 = curriculum (planned, not yet implemented).")
     parser.add_argument("--repeat", type=int, default=0,
                         help="How many episodes to repeat incidents from training in testing.")
-    parser.add_argument("--lr", type=float, default=0.001, help="Learning rate for the agent.")
-    
+    parser.add_argument("--lr", type=float, default=None,
+                        help="Learning rate for the agent. Defaults to the per-network/per-agent "
+                             "value in TREX_comp/config/hyperparams.yaml (Appendix B) when omitted.")
+    parser.add_argument("--verbose", action="store_true", help="Enable DEBUG-level logging.")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Base random seed, applied to Python's random, numpy, torch, "
+                             "and SUMO (each episode gets seed+episode_index passed to SUMO's "
+                             "--seed, instead of --random, for reproducibility). The paper's "
+                             "results are averaged over 5 seeds -- run this flag with 5 "
+                             "different values (e.g. 0-4) and average externally to reproduce "
+                             "that. Pass --no-seed-sumo to fall back to SUMO's own --random "
+                             "instead (Python/numpy/torch are still seeded either way).")
+    parser.add_argument("--no-seed-sumo", action="store_true",
+                        help="Launch SUMO with --random instead of a derived --seed "
+                             "(pre-audit behavior). Python/numpy/torch are still seeded by --seed.")
+
     return parser.parse_args()
 
 
 def main():
     args = parse_arguments()
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
     if args.libsumo and 'LIBSUMO_AS_TRACI' not in os.environ:
         raise EnvironmentError("Set LIBSUMO_AS_TRACI to a nonempty value to enable libsumo.")
+
+    # Make the actual TraCI backend visible rather than assumed -- LIBSUMO_AS_TRACI being
+    # set does NOT guarantee libsumo is actually in use: if the libsumo package isn't
+    # installed (it's pinned in requirements.txt but easy to have out of sync in an existing
+    # environment), traci silently falls back to slower subprocess-based TraCI instead of
+    # erroring (confirmed live in a clean venv missing only that package -- see
+    # AUDIT_REPORT.md). traci.isLibsumo() reports which one is genuinely active.
+    backend = "libsumo (in-process)" if traci.isLibsumo() else "traci (subprocess)"
+    logger.info(f"TraCI backend in use: {backend}")
+
+    if args.strategy == 3:
+        raise NotImplementedError(
+            "--strategy 3 (curriculum) is planned but not yet implemented. "
+            "Use --strategy 1 (base) or --strategy 2 (incident)."
+        )
 
     if args.procs == 1 or args.libsumo:
         run_trial(args, args.tr)
@@ -88,8 +133,11 @@ def run_trial(args, trial):
     if args.map in {'grid4x4', 'arterial4x4'} and not os.path.exists(route):
         raise EnvironmentError("Please decompress the traffic flow files for the selected map.")
 
-    env_class = BaseEnv if args.strategy == 1 else IncidentEnv
-    env = env_class(
+    # --strategy is the single incidents on/off toggle (1 = base/off, 2 = incident/on;
+    # 3 is rejected above before this point is reached). Both modes construct the same
+    # TrexEnv class -- see trex_env.py.
+    incident_config = DEFAULT_INCIDENTS if args.strategy == 2 else NO_INCIDENTS
+    env = TrexEnv(
         run_name=f"{agt_config['agent'].__name__}-tr{trial}",
         map_name=args.map,
         net=os.path.join(args.pwd, map_config['net']),
@@ -107,7 +155,8 @@ def run_trial(args, trial):
         libsumo=args.libsumo,
         warmup=map_config['warmup'],
         run=args.seps,
-        level=2 if args.strategy == 2 else None
+        incident_config=incident_config,
+        sumo_seed=None if args.no_seed_sumo else args.seed,
     )
 
     # === Agent Setup ===
@@ -127,27 +176,43 @@ def run_trial(args, trial):
         for key in env.obs_shape
     }
 
-    agent = alg(agt_config, obs_act, args.map, trial, lr=args.lr) if alg.__name__ in {'MPLight', 'IDQN'} else \
-            alg(agt_config, obs_act, args.map, trial)
+    # Independent RNG for the RL agent's own exploration policy (epsilon-greedy action
+    # selection in IDQN/MPLight, on-policy action sampling in FMA2C), separate from the
+    # global numpy RNG that Initializer.random() reseeds every episode (T_REX.py). Without
+    # this, "which incidents occur" and "how the agent explores" shared one RNG stream, so
+    # changing one could silently perturb the other in a way not attributable to --seed
+    # itself -- the paper's five-seeds-averaged methodology (Section 3.4) implies these
+    # should be separable. Uses the same --seed value (safe: np.random.default_rng's PCG64
+    # and the legacy global Mersenne-Twister API are different algorithms even given an
+    # identical seed value, so there's no risk of correlation from sharing the number).
+    agt_config['exploration_rng'] = np.random.default_rng(args.seed)
+
+    if alg.__name__ in {'MPLight', 'IDQN'}:
+        lr = resolve_learning_rate(alg.__name__, args.map, override=args.lr)
+        agent = alg(agt_config, obs_act, args.map, trial, lr=lr) if lr is not None else \
+                alg(agt_config, obs_act, args.map, trial)
+    else:
+        agent = alg(agt_config, obs_act, args.map, trial)
 
     # === Training or Testing ===
-    if args.strategy == 1:
-        run_base_scenario(env, agent, args, agt_config)
-    else:
-        run_incident_scenario(env, agent, args, agt_config, alg)
-
-    env.close()
+    try:
+        if args.strategy == 1:
+            run_base_scenario(env, agent, args, agt_config)
+        else:
+            run_incident_scenario(env, agent, args, agt_config, alg)
+    finally:
+        env.close()
 
 
 # === Helper Functions ===
 
 def run_base_scenario(env, agent, args, agt_config):
     if agt_config['load']:
-        print('Testing under base condition...')
+        logger.info('Testing under base condition...')
         for _ in range(args.seps, args.eps):
             run_episode(env, agent)
     else:
-        print('Training under base condition...')
+        logger.info('Training under base condition...')
         for _ in range(args.eps):
             run_episode(env, agent)
 
@@ -159,24 +224,24 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
     seed_file_2 = f"{agent_name}{map_id}-seed_ic2.txt"
 
     if agt_config['load']:
-        print('Testing under incident condition...')
+        logger.info('Testing under incident condition...')
         if args.repeat > 0 and os.path.exists(seed_file_1) and os.path.exists(seed_file_2):
             last_seeds_ic1 = load_seeds(seed_file_1, args.repeat)
             last_seeds_ic2 = load_seeds(seed_file_2, args.repeat)
-            print(f"Loaded seeds from files: {list(last_seeds_ic1)}, {list(last_seeds_ic2)}")
+            logger.info(f"Loaded seeds from files: {list(last_seeds_ic1)}, {list(last_seeds_ic2)}")
 
             for _ in range(args.seps, args.eps):
                 seed_ic1, seed_ic2 = last_seeds_ic1.popleft(), last_seeds_ic2.popleft()
                 obs = env.reset(pre_seed=[seed_ic1, seed_ic2])
                 run_episode(env, agent, obs)
         else:
-            print('Testing without predefined incident seeds...')
+            logger.info('Testing without predefined incident seeds...')
             for _ in range(args.seps, args.eps):
                 run_episode(env, agent)
     else:
-        print('Training under incident condition...')
+        logger.info('Training under incident condition...')
         if args.repeat > 0:
-            print('Training and saving last incident seeds...')
+            logger.info('Training and saving last incident seeds...')
             last_seed_ic1 = deque(maxlen=args.repeat)
             last_seed_ic2 = deque(maxlen=args.repeat)
 
@@ -190,13 +255,14 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
             save_seeds(seed_file_1, last_seed_ic1)
             save_seeds(seed_file_2, last_seed_ic2)
         else:
-            print('Training without saving incident seeds...')
+            logger.info('Training without saving incident seeds...')
             for _ in range(args.eps):
                 run_episode(env, agent)
 
 
 def run_episode(env, agent, obs=None):
-    obs = env.reset()
+    if obs is None:
+        obs = env.reset()
     done = False
     while not done:
         act = agent.act(obs)
@@ -213,7 +279,7 @@ def save_seeds(filename, seeds):
     with open(filename, "w") as f:
         for seed in seeds:
             f.write(f"{seed}\n")
-    print(f"Saved seeds to {filename}: {list(seeds)}")
+    logger.info(f"Saved seeds to {filename}: {list(seeds)}")
 
 
 if __name__ == "__main__":

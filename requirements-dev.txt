@@ -1,0 +1,6 @@
+# Development/CI-only dependencies (linting, testing). Not needed to run T-REX itself.
+-r requirements.txt
+pytest>=7.4
+ruff>=0.4
+black>=24.0
+isort>=5.13
