@@ -17,6 +17,144 @@ Status legend: ✅ Fixed · 🚩 Flagged for human review · ⚪ Not an issue ·
 
 ---
 
+## Round 4 — verification, attribution, and one real bug
+
+### 4.1 `arterial4x4` `rm -rf` recovery — verified clean, evidence below (not restated)
+
+Actual command output, this session, repo root:
+
+```
+$ git status --porcelain environments/arterial4x4/
+(empty)
+$ git diff --stat HEAD -- environments/arterial4x4/
+(empty)
+$ git log --oneline -3 -- environments/arterial4x4/
+ce3552646 fix: restore incident-probability CSVs and generalize CAV4 exemption
+9d2c5285d Initial upload of full T-REX framework
+```
+
+Both status and diff are empty — genuinely clean, not merely "recovered." `git log` confirms
+the file history touches exactly two commits: the original repo upload (route files
+themselves) and round 2's unrelated `CAV4` addition to `arterial4x4.add.xml` — nothing from
+the `rm -rf`/recovery cycle left a trace, because the recovery (`git checkout --
+environments/arterial4x4/`) ran before anything was staged.
+
+**What triggered it:** during round 3's 8-network CAV4 smoke test, both `grid4x4.zip` and
+`arterial4x4.zip` were decompressed (`unzip -d <name>`) to exercise the two route-based
+networks. Cleanup afterward ran:
+```
+rm -rf environments/grid4x4/grid4x4 environments/arterial4x4/arterial4x4
+```
+in a single combined command, on the (wrong) assumption that both decompressed directories
+were equally disposable test artifacts. `grid4x4/grid4x4/` genuinely was (0 tracked files,
+gitignored). `arterial4x4/arterial4x4/` was not — it's ~2,800 files committed as part of the
+original repo upload (`9d2c5285d`, before this audit began; see §1.1.2). The mistake was
+treating "I just decompressed this" as equivalent to "this is untracked," without checking.
+
+**Guardrail for future rounds:** before running any recursive delete against a path inside a
+git-tracked directory, run `git ls-files <path> | head` first — an empty result means it's
+safe to `rm -rf`; any output means `git rm` (or leave it alone) instead. Never assume a
+directory is disposable just because *this session* created it by decompressing something —
+check whether it happens to coincide with an already-tracked path.
+
+### 4.2 Round 2 vs. round 3 CSV discrepancy — reconciled
+
+**One-sentence answer:** this is case (a) — round 2's audit report was generated from
+observations made *before* the repo owner supplied the four CSV files and before round 2's
+own fix commit (`ce3552646`) landed, and that pre-fix language was never revised afterward,
+even though later text in the same round-2 report *does* correctly describe the fix (compare
+§2.4/§2.8's original wording, written first, against the CSV item's "Update (round 2/3)"
+callout added just above it) — so the contradiction is a stale-narration issue within round
+2's own report, not a stale checkout, wrong branch, or genuinely different repo state; `git
+log` shows a single continuous line of commits with no branch-switching in between.
+
+**Caveat this implies:** if round 2's report narrated at least one fix (CSVs) as still-broken
+after having already fixed it in the same round, its other "🚩 Flagged, not fixed" items from
+that same round should not be trusted at face value without a similar live re-check — they
+were not re-verified in this round (out of scope), but a future round should re-run the
+underlying commands for round 2's remaining flagged items before relying on their stated
+status, the same way round 3 did for the CSVs and CAV4.
+
+### 4.3 The uncommitted `IC` vType edits — isolated, not assumed
+
+Per round 3's note, checked which commit these landed in and isolated the exact diff:
+
+```
+$ git log --oneline --all -- environments/ingolstadt7/ingolstadt7.add.xml
+d9385df27 fix: complete CAV4 teleport exemption for all 8 networks; fix stale gitignore
+ce3552646 fix: restore incident-probability CSVs and generalize CAV4 exemption
+9d2c5285d Initial upload of full T-REX framework
+```
+
+They are already committed — inside `d9385df27` (round 3's CAV4-completion commit), mixed in
+with round 3's own `CAV4` additions to the same 5 files. **Not separated retroactively** (no
+history rewrite, per instruction); the exact lines are documented here instead so the repo
+owner can review them directly:
+
+```diff
+-	<vType id="IC" vClass="emergency" />
++	<vType id="IC" vClass="emergency" timeToTeleport="-1"/>
+```
+in `environments/{grid4x4,arterial4x4,cologne3,cologne8,ingolstadt7}/*.add.xml` (5 files);
+also present by construction in the two new files this round created,
+`environments/{cologne1,ingolstadt1}/*.add.xml`, since both were copied verbatim from
+`ingolstadt21.add.xml`, which already had this line before this audit began (part of the
+original WIP baseline committed at the very start, `5ad043ab6`). **Origin: not this audit.**
+Round 3 found these 5 files' `IC` lines already modified, uncommitted, in the working tree
+at the start of that round — nobody in this audit wrote that diff; it was folded into round
+3's commit only because it was sitting in the same files being edited for `CAV4`, not because
+it was verified or authored here. See the "Needs owner decision" entry below.
+
+### 4.4 Fixed: `Initializer.random_pos()` could return a negative position
+
+Confirmed genuine bug (not a paper-vs-code ambiguity — a negative position is physically
+invalid under any reading): `random_pos()` called `np.random.uniform(10, edge_length - 10)`
+unconditionally; when `edge_length < 20`, the upper bound is below the lower bound, which
+NumPy documents as undefined behavior for `uniform()`. Fixed per the specified default
+policy: edges shorter than **20m** (the exact threshold — two 10m end buffers with zero room
+between them) are now excluded from the incident-candidate pool in both `random_edge()` and
+`weighted_random_edge()`, rather than clamping the sampled position into a degenerate range.
+This preserves `U(10, edge_length-10)` as a true uniform draw on every edge that remains
+eligible, instead of silently distorting it on short edges. See `tests/test_incident_sampling.py`
+for the regression test (a deliberately 15m synthetic edge, asserting it's excluded from the
+candidate pool, plus a bounds check across a range of edge lengths including the 20m boundary
+itself). 🚩 The 20m threshold and exclusion-vs-clamping choice are flagged in "Needs owner
+decision" below as an overridable default, not a final scientific-methodology call — shipped
+now because a live invalid negative position is strictly worse than a conservative default.
+
+**Live re-verification**, `--map ingolstadt7 --strategy 2 --eps 5 --seed 1` (the exact
+network the bug first appeared on): 12 incidents sampled across 5 episodes, positions
+`32.4, 31.7, 11.2, 42.6, 36.2, 13.1, 57.6, 39.3, 167.7, 22.7, 18.0, 47.1` — all positive,
+none negative. `tests/test_incident_sampling.py`: 12/12 passing (4 new tests for this fix).
+
+**Reproducibility side effect, worth knowing about:** this fix necessarily changes which
+edges are eligible for incident placement, so for networks with any short edges, the same
+`--seed` value no longer selects the same incident edge/position it did before this fix
+(confirmed live: re-running `ingolstadt21` with the same seed used earlier in this audit
+selected different edges post-fix than pre-fix, both deterministically reproducible on their
+respective sides of the fix). This is an unavoidable consequence of correctly excluding
+invalid edges rather than a new bug — any incident-scenario results already generated with a
+fixed seed on a network with short edges will not reproduce byte-for-byte against this
+version of the code. Not flagged as a decision item (the fix itself isn't in question, only
+its exact threshold/strategy are, per item 7 below) — noted here so it doesn't surprise
+anyone diffing old vs. new seeded runs.
+
+## Needs owner decision — consolidated (all rounds, single authoritative list)
+
+Every item below is untouched and waiting on the repo owner. Superset of round 2's original
+table plus everything found in rounds 3-4; nothing here has been acted on beyond flagging it.
+
+| # | Item | File(s) | Since |
+|---|---|---|---|
+| 1 | Incident start-time upper bound: code uses `end_time − 500`, paper/brief states `end_time − 1200` | `T_REX.py:240` | round 2 |
+| 2 | `warmup=0` in all 10 network configs | `TREX_comp/config/map_config.py` | round 2 |
+| 3 | `slow_zone_speed=1.39` contradicts its own inline comment and the paper's ~8km/h figure | `T_REX.py:28` | round 2 |
+| 4 | Whether to keep, regenerate, or remove `arterial4x4`/`arterial5x5` (1.3GB+ of committed route files; `arterial5x5` has no data at all and isn't reachable via `--map`) | `environments/arterial4x4/`, `TREX_comp/config/map_config.py` | round 1/2 |
+| 5 | SUMO-level `--seed` vs. RL-exploration-RNG independence: `Initializer` reseeds the same global `numpy` RNG the RL agents' exploration policies draw from | `T_REX.py`, `TREX_comp/agents/*.py` | round 2 |
+| 6 | The uncommitted `IC` vType `timeToTeleport="-1"` edits (§4.3) — origin/intent not confirmed by anyone in this audit; already committed (`d9385df27`) alongside round 3's `CAV4` work because they were in the same files, not because they were reviewed. Needs explicit confirmation this was intentional. | `environments/{grid4x4,arterial4x4,cologne3,cologne8,ingolstadt7,cologne1,ingolstadt1}/*.add.xml` | round 3, isolated round 4 |
+| 7 | `random_pos()`'s 20m short-edge exclusion threshold, and exclusion-vs-clamping as the fix strategy (§4.4) — shipped as a safe default, not a confirmed methodology choice | `T_REX.py` (`random_edge`/`weighted_random_edge`) | round 4 |
+| 8 | Round 2's other 🚩-flagged items were never re-verified against a live run the way the CSVs/CAV4 were (§4.2) — no specific bug identified, just an open trust gap worth a future pass | (all of round 2's flagged items) | round 4 |
+
 ## Round 3 — validation, then completion of skipped items
 
 Round 3 opened by pointing out that round 2's write-up and the actual repo state appeared
@@ -74,6 +212,9 @@ fixed** — this is incident-sampling scientific logic, out of round 3's explici
 "Do not touch" list), and fixing it requires a modeling decision (skip short edges? clamp
 the position? exclude edges below a minimum length from candidate selection?) that should
 go through the same owner-decision process as the other sampling-formula items below.
+
+> **Update (round 4):** fixed — short edges (`<20m`) are now excluded from the incident
+> edge-candidate pool. See §4.4.
 
 ### 3.2 CAV4 teleport exemption — now completed for all 8 networks
 
@@ -852,7 +993,7 @@ changes.
 | Bug | `IncidentEnv._build_sumo_command` route branch referenced a nonexistent `vtypes.add.xml` instead of the already-computed `self.additional` — broke grid4x4/arterial4x4 incident runs entirely | ✅ Fixed |
 | Bug | `CAV4` teleport-exemption vType only active in `ingolstadt21.add.xml` elsewhere; `cologne1`/`ingolstadt1` had no `.add.xml` at all | ✅ Fixed round 3 for all 8 networks (§3.2) — live-verified on every network with real exemption events, not just absence of a crash |
 | Bug | `--strategy 3` ("curriculum") documented but unimplemented — crashed with `TypeError: range(None)` | ✅ Fixed round 2 (fails fast with `NotImplementedError`), test added round 3 (§3.3) |
-| Bug (flagged) | `Initializer.random_pos()` can return a negative position on short edges (`edge_length < 20`, `np.random.uniform(10, edge_length-10)` with `high < low` is undefined) — found live during round 3's CSV re-verification (§3.1) | 🚩 Flagged, not fixed — out of round 3's scope, needs an owner decision on the modeling fix |
+| Bug | `Initializer.random_pos()` can return a negative position on short edges (`edge_length < 20`, `np.random.uniform(10, edge_length-10)` with `high < low` is undefined) — found live during round 3's CSV re-verification (§3.1) | ✅ Fixed round 4 (§4.4) — short edges excluded from the candidate pool; exact threshold flagged as an overridable default |
 | Correctness note | Table B1's 5 incident categories aren't a selectable code parameter; single generic blockage mechanism | 🚩 Flagged, README describes actual configurability only |
 | Critical | No `.gitignore`; 1.3GB+ of generated route files and `.pyc` files tracked in git (6.4GB `.git`) | ✅ Fixed (gitignore + pycache removal) / 🚩 Flagged (arterial4x4 route files, size) |
 | Critical | Per-network learning rate defaults not implemented; CLI default silently overrides paper-correct values | ✅ Fixed (added hyperparameter config) |

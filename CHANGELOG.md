@@ -4,7 +4,48 @@ Changes made on the `audit/code-quality-and-docs` branch, grouped by audit phase
 `AUDIT_REPORT.md` for the full analysis behind each item, including everything that was
 **flagged but not changed** (most items below link back to a report section for that
 reason). Nothing in the scientific formulas — metric definitions, ICM/SSD equations,
-incident sampling distributions, RL reward/observation functions — was altered.
+incident sampling distributions, RL reward/observation functions — was altered, with one
+exception: round 4 fixed a genuine bug (not a formula change) in incident edge selection
+that could produce a physically invalid negative incident position; see that round's entry
+for the reproducibility implications.
+
+## Round 4 — verification, attribution, and one real bug
+
+- **`arterial4x4` `rm -rf` recovery verified clean** with actual command output (not
+  restated): `git status --porcelain` and `git diff --stat HEAD` both empty for
+  `environments/arterial4x4/`; `git log` shows only the original upload + round 2's
+  unrelated `CAV4` add.xml edit touched that path. Root cause documented: a combined
+  cleanup command (`rm -rf .../grid4x4/grid4x4 .../arterial4x4/arterial4x4`) wrongly
+  assumed both decompressed directories were equally disposable — `grid4x4`'s was,
+  `arterial4x4`'s (~2,800 files) was already committed as part of the original repo
+  upload. Fixed the stale, never-matching `.gitignore` entry for it and replaced it with
+  a warning comment instead. Guardrail added to `AUDIT_REPORT.md`: check
+  `git ls-files <path>` before any recursive delete against a tracked directory.
+- **Round 2 vs. round 3 CSV discrepancy reconciled**: round 2's report text was written
+  before its own fix commit (`ce3552646`) and never updated afterward — a stale-narration
+  issue within round 2's own report, not a stale checkout or branch mixup. Documented as a
+  trust caveat on round 2's other still-flagged items (not re-verified this round, out of
+  scope, but should be before being relied on).
+- **Isolated (not reverted, not silently kept) the uncommitted `IC` vType edits** round 3
+  found already sitting in the working tree and built on top of. They're already committed,
+  inside round 3's `CAV4` commit (`d9385df27`), mixed in with round 3's own changes to the
+  same 5 files — not separated via history rewrite (per instruction), just precisely
+  documented (files, exact diff) so the repo owner can review them directly. Flagged as a
+  new "Needs owner decision" item: origin/intent unconfirmed by any audit round.
+- **Fixed: `Initializer.random_pos()` could return a negative position** on edges shorter
+  than 20m (`np.random.uniform(10, edge_length-10)` with `high < low` is undefined in
+  NumPy). Edges below 20m are now excluded from the incident edge-candidate pool in both
+  `random_edge()`/`weighted_random_edge()`, rather than clamping the sampled position —
+  preserves a true uniform draw on every edge that remains eligible. 4 new tests in
+  `tests/test_incident_sampling.py` (12/12 passing in that file); live-reverified on
+  `ingolstadt7` (the network the bug first appeared on) across 5 episodes, all positions
+  positive. The 20m threshold is flagged as an overridable default, not a locked-in
+  methodology choice. **Reproducibility note**: this fix changes the incident
+  edge-candidate pool, so a fixed `--seed` no longer selects the same edge/position it did
+  pre-fix on networks with short edges — an unavoidable consequence of fixing the bug
+  correctly, not a new issue.
+- Consolidated every "Needs owner decision" item from all four rounds into one table in
+  `AUDIT_REPORT.md`, replacing the scattered per-round flags.
 
 ## Round 3 — validate before re-reporting, then complete what round 2 skipped
 
