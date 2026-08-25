@@ -16,6 +16,11 @@ tensorflow>=2.10         # used via tensorflow.compat.v1 (see TREX_comp/agents/{
 pfrl>=0.4
 eclipse-sumo>=1.19       # PyPI wheel bundling the SUMO binaries; alternatively install SUMO
                          # separately (see README) and only pip-install the packages above
+libsumo>=1.19            # fast in-process SUMO binding; --libsumo True / LIBSUMO_AS_TRACI=1
+                         # silently fall back to slower subprocess-based traci without this
+                         # (confirmed live in a clean venv missing only this package -- see
+                         # AUDIT_REPORT.md). Matches eclipse-sumo's version floor; both are
+                         # built from the same SUMO release.
 
 # Not required to train/evaluate with main.py -- only needed by the standalone analysis
 # script readXML.py, which imports `resco_benchmark`. RESCO is not published on PyPI;

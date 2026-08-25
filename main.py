@@ -7,6 +7,7 @@ from collections import deque
 
 import numpy as np
 import torch
+import traci
 
 from TREX_comp.config.agent_config import agent_configs
 from TREX_comp.config.map_config import map_configs
@@ -85,6 +86,15 @@ def main():
 
     if args.libsumo and 'LIBSUMO_AS_TRACI' not in os.environ:
         raise EnvironmentError("Set LIBSUMO_AS_TRACI to a nonempty value to enable libsumo.")
+
+    # Make the actual TraCI backend visible rather than assumed -- LIBSUMO_AS_TRACI being
+    # set does NOT guarantee libsumo is actually in use: if the libsumo package isn't
+    # installed (it's pinned in requirements.txt but easy to have out of sync in an existing
+    # environment), traci silently falls back to slower subprocess-based TraCI instead of
+    # erroring (confirmed live in a clean venv missing only that package -- see
+    # AUDIT_REPORT.md). traci.isLibsumo() reports which one is genuinely active.
+    backend = "libsumo (in-process)" if traci.isLibsumo() else "traci (subprocess)"
+    logger.info(f"TraCI backend in use: {backend}")
 
     if args.strategy == 3:
         raise NotImplementedError(
