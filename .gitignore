@@ -16,7 +16,11 @@ env/
 results/
 results_*/
 environments/grid4x4/grid4x4/
-environments/arterial4x4/arterial4x4_extracted/
+# NOTE: environments/arterial4x4/arterial4x4/ (the zip decompressed the same way as
+# grid4x4's) is intentionally NOT listed here -- unlike grid4x4's, that directory's
+# ~2,800 route files are already committed to git (see AUDIT_REPORT.md Phase 1); an
+# ignore pattern here wouldn't untrack them and would be misleading. Do not `rm -rf`
+# environments/arterial4x4/arterial4x4/ as if it were disposable -- `git status` first.
 *.tripinfo.xml
 tripinfo_*.xml
 metrics_*.csv

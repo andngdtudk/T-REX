@@ -9,9 +9,17 @@ this audit; every other incident-capable network crashed on the first vehicle
 that queued behind a blocked lane. This test parses each network's .add.xml
 directly (no SUMO/TraCI needed) so that regression can't silently reappear.
 
-cologne1/ingolstadt1 are intentionally excluded: they have no .add.xml at all
-and are single-intersection reductions not used by IncidentEnv/the paper's
-evaluation (see README's "Supported networks" section).
+Covers all 8 networks main.py's --map exposes (confirmed against
+TREX_comp/config/map_config.py / main.py's argparse choices --
+arterial5x5/turin5 also appear in map_config.py but are not reachable via
+--map and are out of scope here). cologne1/ingolstadt1 originally had no
+.add.xml at all (main.py's --strategy 2 would have failed outright there,
+not merely hit the CAV4 issue); both now have one, copied verbatim from
+ingolstadt21's (the working original) rather than reintroducing anything
+from the unrelated, still-disabled vType-distribution block that predates
+CAV4 in every file. See tests/test_cav4_live.py for a live-SUMO test that
+each network actually exempts a queued vehicle at runtime, not just that
+the vType is declared.
 """
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -21,12 +29,15 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENVIRONMENTS_DIR = REPO_ROOT / "environments"
 
-# Every network map_config.py wires up for IncidentEnv (has an .add.xml).
+# Every network reachable via main.py's --map that IncidentEnv/TrexEnv can run
+# --strategy 2 on (has, or should have, an .add.xml defining CAV4/IC).
 INCIDENT_CAPABLE_NETWORKS = [
     "grid4x4",
     "arterial4x4",
+    "cologne1",
     "cologne3",
     "cologne8",
+    "ingolstadt1",
     "ingolstadt7",
     "ingolstadt21",
 ]

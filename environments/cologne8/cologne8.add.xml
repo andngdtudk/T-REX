@@ -14,7 +14,7 @@
 	<vType id="CAV2" vClass="passenger" speedDev="0.05" carFollowModel="IDM" minGap="1.5" tau="0.8" sigma="0.05" lcStrategic="0.5" probability="0"/>
 	<vType id="HDC" vClass="passenger" tau="1.2" lcStrategic="0.5" probability="1" /> -->
 	
-	<vType id="IC" vClass="emergency" />
+	<vType id="IC" vClass="emergency" timeToTeleport="-1"/>
 
 	<!-- <vTypeDistribution id="PKW" vTypes="HDC CAV2 CAV4"/>
 	<vTypeDistribution id="LKW" vTypes="HDT CAT2 CAT4"/> -->
