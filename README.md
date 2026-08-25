@@ -52,20 +52,16 @@ reproduces a specific published number.
 T-REX is organized into four conceptual modules (the paper's Figure 1); in this repository
 they map onto code as follows:
 
-```
-┌─────────────────────┐     ┌──────────────────┐     ┌──────────────────────┐     ┌─────────────────────┐
-│  Network Environment │────▶│    Initializer    │────▶│      Deployment       │────▶│    RL Interaction     │
-│                      │     │                    │     │                       │     │                       │
-│ trex_env.py           │     │ T_REX.py::         │     │ T_REX.py::            │     │ TREX_comp/            │
-│ traffic_signal.py    │     │  Initializer       │     │  Deployment           │     │  agents/, rewards.py, │
-│ environments/*       │     │                    │     │                       │     │  states.py, config/   │
-│ (SUMO network,       │     │ samples edge/lanes/ │     │ injects the incident   │     │ + main.py entry point │
-│  routes, signal      │     │ position/duration/  │     │ via TraCI, runs ICM     │     │                       │
-│  plans, vtypes)      │     │ start time          │     │ rerouting + SSD speed   │     │ Gym-style state/      │
-│                      │     │                    │     │ adaptation + lane-      │     │ action/reward loop     │
-│                      │     │                    │     │ changing each step      │     │                       │
-└─────────────────────┘     └──────────────────┘     └──────────────────────┘     └─────────────────────┘
-```
+<p align="left">
+  <img src="TREX_RESCO_high.png" alt="T-REX architecture: Network Environment, Initializer, Deployment, and RL Interaction modules" width="900"/>
+</p>
+
+| Module | Code |
+|---|---|
+| Network Environment | `trex_env.py`, `traffic_signal.py`, `environments/*` (SUMO network, routes, signal plans, vtypes) |
+| Initializer | `T_REX.py::Initializer` — samples edge/lanes/position/duration/start time |
+| Deployment | `T_REX.py::Deployment` — injects the incident via TraCI, runs ICM rerouting, SSD speed adaptation, and lane-changing each step |
+| RL Interaction | `TREX_comp/` (`agents/`, `rewards.py`, `states.py`, `config/`) + `main.py` entry point |
 
 `TrexEnv` (in `trex_env.py`) is the single Gym environment class that wires these together,
 with incidents controlled by one constructor parameter, `incident_config`
