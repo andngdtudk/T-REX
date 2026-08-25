@@ -17,6 +17,69 @@ Status legend: ✅ Fixed · 🚩 Flagged for human review · ⚪ Not an issue ·
 
 ---
 
+## Round 6 — closing the pfrl RNG-scope caveat, `libsumo` pin, README refresh
+
+### 6.1 pfrl RNG-independence scope — verified empirically, then actually closed (not worked around)
+
+Round 5's B4 write-up said MPLight was "fully decoupled" and IDQN had a caveat (its
+epsilon-vs-explore coin flip lives inside pfrl's own library internals). Round 6 verified
+this by reading the actual code paths rather than trusting the round-5 analysis at face
+value:
+
+- **MPLight**: `mplight.py:36` always passes `num_agents=config['num_lights']` to
+  `DQNAgent`, and `config['num_lights']` (`main.py`: `len(env.all_ts_ids)`) is always ≥ 1
+  for any real network — so MPLight always takes the `num_agents > 0` branch
+  (`SharedEpsGreedy`, our own class, already fully threaded with `self.rng` in round 5).
+  Confirmed, not assumed: this branch is unconditionally reachable for MPLight in practice.
+- **IDQN**: never passes `num_agents` (defaults to `0`), so it always took the `else`
+  branch — `explorers.LinearDecayEpsilonGreedy`, pfrl's own built-in class. Read pfrl's
+  actual source (`inspect.getsource`, not guessed): `LinearDecayEpsilonGreedy.__init__`
+  has no RNG-injection parameter at all, and its `select_action()` calls pfrl's own
+  `pfrl.explorers.epsilon_greedy.select_action_epsilon_greedily`, which hardcodes
+  `np.random.rand()` with no way to override it short of patching pfrl itself.
+
+**Rather than settle for the fallback (seeding pfrl's global state once at construction —
+which, per the task's own instruction to test before keeping it, was checked and found
+useless: `Initializer.random()` reseeds that same global state on every `env.reset()`,
+which always runs before any exploration happens in a real episode loop, so a one-time
+construction-time seed would be silently overwritten before it ever mattered), a real fix
+was possible and applied**: `SharedEpsGreedy` (our own `LinearDecayEpsilonGreedy` subclass)
+is a verified drop-in replacement for pfrl's own class in the non-shared path too — pfrl's
+`DQN.batch_act` calls `self.explorer.select_action(t, greedy_func, action_value=...)` with
+no `num_acts` kwarg, and `SharedEpsGreedy.select_action(t, greedy_action_func,
+action_value=None, num_acts=None)` already handles `num_acts=None` identically to the base
+class (falls through to `self.random_action_func`). `DQNAgent.__init__` now constructs
+`SharedEpsGreedy` for **both** branches, closing the gap instead of documenting around it.
+
+**Proof, not assumed**: `tests/test_rng_independence.py::test_full_explorer_select_action_is_seed_reproducible`
+(new, parametrized over `num_agents=0` — IDQN's exact path — and `num_agents=3` — MPLight's)
+exercises the *entire* `explorer.select_action()` call, epsilon coin-flip included, not
+just the random-action lambda in isolation, with `EPS_START=EPS_END=0.5` specifically so
+the coin flip genuinely varies (a constant `1.0` epsilon would trivially "pass" even a
+broken, unseeded coin flip). Both are now fully seed-reproducible. 5/5 passing in that file.
+Live end-to-end: IDQN retrained cleanly on `ingolstadt7` after the swap.
+
+**Unrelated bug found during this live re-verification, not caused by the swap, not
+fixed**: `--eps 1` (or any `--eps` where `int(eps * 0.8) == 0`) makes
+`main.py`'s `agt_config['steps'] = int(args.eps * 0.8) * num_steps_eps` evaluate to `0`,
+which crashes IDQN's first action selection with `ZeroDivisionError` inside pfrl's own
+`compute_epsilon` (`epsilon_diff * (t / self.decay_steps)`, `decay_steps=0`). Confirmed
+this is **pre-existing, not introduced by the explorer swap above**: `compute_epsilon` is
+inherited unchanged from pfrl's `LinearDecayEpsilonGreedy` either way, so the exact same
+division-by-zero would occur with pfrl's own explorer too, given the same degenerate
+`--eps`. Re-ran with `--eps 2` (`int(2*0.8)=1`, non-zero `steps`) — trains cleanly, 0
+errors. 🚩 Flagged, not fixed — this is a train/test-split edge case in `main.py`
+(`int(args.eps * 0.8)`'s truncation), out of this round's scope, and fixing it means
+deciding the right behavior for degenerate `--eps` values (a minimum floor? reject `--eps`
+below some threshold?), a design call rather than an unambiguous one-line fix.
+
+### 6.2 `libsumo` pin and runtime backend visibility
+
+`requirements.txt` now pins `libsumo` (see below for the version chosen and why). `main.py`
+logs which TraCI backend is actually active at startup (`libsumo` in-process vs.
+`traci`-subprocess), so a silent fallback like round 5 Part A.6 found can't happen unnoticed
+again — see `main.py`'s startup log line.
+
 ## Round 5 — Part A: closing the round-1 trust gap (live re-verification)
 
 Round 1 marked several items "✅ Fixed" based on the code change being made, not on a live

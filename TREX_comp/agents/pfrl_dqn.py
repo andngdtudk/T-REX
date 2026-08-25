@@ -60,21 +60,28 @@ class DQNAgent(Agent):
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         replay_buffer = replay_buffers.ReplayBuffer(10000)
 
-        if num_agents > 0:
-            explorer = SharedEpsGreedy(
-                config['EPS_START'],
-                config['EPS_END'],
-                num_agents*config['steps'],
-                lambda: self.rng.integers(act_space),
-                rng=self.rng,
-            )
-        else:
-            explorer = explorers.LinearDecayEpsilonGreedy(
-                config['EPS_START'],
-                config['EPS_END'],
-                config['steps'],
-                lambda: self.rng.integers(act_space),
-            )
+        # SharedEpsGreedy (our own explorer, fully threaded with self.rng above) is used
+        # for BOTH branches, not just the shared (num_agents > 0, MPLight's) path. It's a
+        # subclass of pfrl's explorers.LinearDecayEpsilonGreedy and a verified drop-in
+        # replacement for the plain (IDQN's) path too: pfrl.agents.DQN.batch_act calls
+        # self.explorer.select_action(t, greedy_func, action_value=...) with no num_acts
+        # kwarg, which SharedEpsGreedy.select_action already handles identically to the
+        # base class (num_acts=None -> uses self.random_action_func). Without this,
+        # IDQN's epsilon-vs-explore coin flip would go through pfrl's own
+        # LinearDecayEpsilonGreedy.select_action -> pfrl's own select_action_epsilon_greedily
+        # -> a hardcoded np.random.rand() with no injection point pfrl exposes (confirmed by
+        # reading pfrl's source, not assumed) -- leaving IDQN's exploration only partially
+        # decoupled from Initializer's global-RNG reseeding, unlike MPLight's fully-shared
+        # path. Using our own explorer for both closes that gap instead of leaving it as a
+        # scoping caveat.
+        decay_steps = num_agents*config['steps'] if num_agents > 0 else config['steps']
+        explorer = SharedEpsGreedy(
+            config['EPS_START'],
+            config['EPS_END'],
+            decay_steps,
+            lambda: self.rng.integers(act_space),
+            rng=self.rng,
+        )
 
         if num_agents > 0:
             print('USING SHAREDDQN')
