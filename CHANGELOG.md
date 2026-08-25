@@ -6,6 +6,42 @@ Changes made on the `audit/code-quality-and-docs` branch, grouped by audit phase
 reason). Nothing in the scientific formulas — metric definitions, ICM/SSD equations,
 incident sampling distributions, RL reward/observation functions — was altered.
 
+## Round 3 — validate before re-reporting, then complete what round 2 skipped
+
+- **CSV/path-resolution issue re-verified, not re-reported.** Confirmed (whole-filesystem
+  and repo-wide search, `git ls-files`, `git log`) that the four incident-probability CSVs
+  are present, committed (`ce3552646`, already part of this branch), and that
+  `Initializer.__init__`'s path resolution was already fixed in that same commit to use
+  `os.path.dirname(self.net_path)` instead of a bare CWD-relative filename. Re-ran the
+  exact command round 2 reported failing (`--map ingolstadt7 --strategy 2`, plus
+  `ingolstadt21`/`cologne3`/`cologne8`) live from a clean shell: all four complete
+  successfully. Marked resolved based on that re-run, per instruction, not on the files
+  merely existing. New, unrelated finding surfaced by this re-run: `Initializer.random_pos()`
+  can return a negative position on very short edges (`np.random.uniform(10, edge_length-10)`
+  with `high < low` is undefined in NumPy when `edge_length < 20`) — flagged, not fixed
+  (out of this round's scope, needs a modeling decision).
+- **CAV4 teleport exemption completed for all 8 networks** (round 2 had done 6 of 8).
+  Created `cologne1.add.xml`/`ingolstadt1.add.xml` from scratch (previously no `.add.xml`
+  at all there), copying `ingolstadt21`'s working `CAV4`/`IC` definitions verbatim per
+  instruction — no new attributes invented, nothing resurrected from the unrelated
+  disabled legacy vType-distribution block present in every file. `tests/test_incident_vtypes.py`
+  extended to all 8 networks (8/8 passing). Added `tests/test_cav4_live.py`: a live-SUMO
+  test per network that asserts the exemption path was actually *exercised* (captures the
+  DEBUG log event), not merely that nothing crashed — 8/8 passing, each with real exemption
+  events confirmed (70-746 per network across a 2-episode manual run this session).
+  Also found and preserved (not authored by any audit round): uncommitted changes already
+  in the working tree adding `timeToTeleport="-1"` to the `IC` vType on 5 networks,
+  matching `ingolstadt21`'s existing pattern — left in place and extended consistently to
+  the two new `.add.xml` files, flagged for visibility since it wasn't part of this audit's
+  own work.
+- **`--strategy 3` fail-fast**: behavior was already implemented in round 2
+  (`3cdad97e3`); round 3 added the unit test that was missing
+  (`tests/test_main_cli.py`) asserting it raises `NotImplementedError`, not `TypeError`,
+  and that `--strategy 1`/`2` are unaffected.
+- **Untouched, as instructed**: the incident start-time upper bound, `warmup=0`, `slow_zone_speed`,
+  the `arterial4x4`/`arterial5x5` keep-or-remove question, and SUMO-seed/RNG-independence —
+  all still exactly as flagged for the repo owner in round 2's "Needs owner decision" table.
+
 ## Environment unification (`feature/unified-environment`, branched off `audit/code-quality-and-docs`)
 
 Merged `base_env.py::BaseEnv` and `incident_env.py::IncidentEnv` — two separate,

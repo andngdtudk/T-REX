@@ -17,6 +17,134 @@ Status legend: ✅ Fixed · 🚩 Flagged for human review · ⚪ Not an issue ·
 
 ---
 
+## Round 3 — validation, then completion of skipped items
+
+Round 3 opened by pointing out that round 2's write-up and the actual repo state appeared
+to contradict each other on three items (CSVs, CAV4, `--strategy 3`). Investigated each
+directly rather than trusting either side; results below, evidence included, not assumed.
+
+### 3.1 The CSV "contradiction" — resolved: the files are present and working
+
+**Static check** (`git branch --show-current` → `feature/unified-environment`;
+`find / -iname "*prob*.csv"` and `find <repo> -iname "*.csv"`, both from a clean shell):
+all four files exist, inside the repo, in the correct per-network directories:
+
+```
+environments/ingolstadt7/Ing7_prob.csv
+environments/cologne8/Col8_prob.csv
+environments/cologne3/Col3_prob.csv
+environments/ingolstadt21/Ing21_prob.csv
+```
+
+`git ls-files | grep -i prob.csv` confirms all four are **tracked and committed**
+(commit `ce3552646`, already on this branch) — not merely present on disk. `T_REX.py`'s
+`Initializer.__init__` (current lines ~57-64) resolves them via
+`network_dir = os.path.dirname(self.net_path)` — already fixed in that same commit to be
+independent of the process's working directory, not the bare-CWD-relative filename the
+round-3 brief described. (`git log --oneline -- T_REX.py` confirms `ce3552646` is the
+commit that introduced this fix; nothing since has touched it.)
+
+**Live re-run**, the actual command that round 2 reported failing, from a clean shell, repo
+root, `feature/unified-environment` checked out:
+
+```
+$ export LIBSUMO_AS_TRACI=1
+$ python3 main.py --agent MAXPRESSURE --map ingolstadt7 --eps 1 --strategy 2 --libsumo True
+...
+INFO T_REX: Incident happens at edge 164051413 at time 649 lasting for 0 seconds, ...
+INFO T_REX: Incident happens at edge -201089423#1 at time 222 lasting for 2040 seconds, ...
+INFO trex_env: Saving metrics to .../results/MAXPRESSURE-tr0-ingolstadt7-7-mplight-wait/metrics_1.csv
+```
+
+Episode completed, metrics written, no traceback. Repeated identically for `ingolstadt21`,
+`cologne3`, `cologne8` — all four completed cleanly, no lingering SUMO processes afterward
+(`pgrep -af sumo` empty). **Conclusion: not a contradiction — round 2 fixed this in commit
+`ce3552646`; the round-3 brief's description of the bug matches the *pre-round-2* state,
+not what's actually on this branch now.** Marking resolved based on this re-run, not on the
+files merely existing.
+
+**One new, unrelated issue surfaced by this re-run, not previously caught**: the first
+`ingolstadt7` incident logged `pos=-0.1202005682457532` (a **negative** position) and
+`lasting for 0 seconds`. `Initializer.random_pos()` computes
+`np.random.uniform(10, edge_length - 10)`; NumPy's behavior is officially undefined when
+`high < low`, which happens whenever `edge_length < 20` (a short edge/connector). A 0-second
+duration is separately valid (the exponential draw can legitimately round to 0), but the
+negative position indicates `random_pos()` has no guard for short edges. 🚩 **Flagged, not
+fixed** — this is incident-sampling scientific logic, out of round 3's explicit scope (see
+"Do not touch" list), and fixing it requires a modeling decision (skip short edges? clamp
+the position? exclude edges below a minimum length from candidate selection?) that should
+go through the same owner-decision process as the other sampling-formula items below.
+
+### 3.2 CAV4 teleport exemption — now completed for all 8 networks
+
+Round 2 completed this for 6 of 8 networks (`grid4x4`, `arterial4x4`, `cologne3`,
+`cologne8`, `ingolstadt7`, `ingolstadt21`); `cologne1`/`ingolstadt1` had **no `.add.xml` at
+all**, so `--strategy 2` would have failed outright there (missing additional-file), not
+merely hit the CAV4 issue. Completed now:
+
+- Created `environments/cologne1/cologne1.add.xml` and
+  `environments/ingolstadt1/ingolstadt1.add.xml`, copied verbatim from `ingolstadt21`'s
+  (the original, working definition) rather than reintroducing anything from the unrelated,
+  still-disabled legacy vType-distribution block present in every file — per instruction,
+  no new attributes invented.
+- Confirmed via `main.py`'s own `--map` argparse choices that these 8 networks
+  (`grid4x4`, `arterial4x4`, `cologne1`, `cologne3`, `cologne8`, `ingolstadt1`,
+  `ingolstadt7`, `ingolstadt21`) are the complete "supported" set — `map_config.py` also
+  defines `arterial5x5`/`turin5`, but those aren't reachable via `--map` at all (not in
+  `main.py`'s `choices=[...]`), so they're out of scope for this completion, consistent
+  with round 1's finding that they're unused RESCO-inherited leftovers.
+- `tests/test_incident_vtypes.py` extended from 6 to all 8 networks (static XML check, no
+  SUMO needed) — 8/8 passing.
+- **New**: `tests/test_cav4_live.py` — a live-SUMO test that goes further than "doesn't
+  crash": it runs one full incident episode per network and asserts the exemption path was
+  actually *exercised* (captures the `"exempting queued vehicle"` DEBUG log record), not
+  merely that it wasn't triggered. Actual run, this session, all 8 networks,
+  `--eps 2 --verbose`:
+
+  | Network | Exemption events (2 episodes) | `not known` errors |
+  |---|---|---|
+  | grid4x4 | 323 | 0 |
+  | arterial4x4 | 366 | 0 |
+  | cologne1 | 70 | 0 |
+  | cologne3 | 746 | 0 |
+  | cologne8 | 293 | 0 |
+  | ingolstadt1 | 144 | 0 |
+  | ingolstadt7 | 129 | 0 |
+  | ingolstadt21 | 105 | 0 |
+
+  `tests/test_cav4_live.py` re-run standalone (1 episode/network via pytest): **8/8
+  passing**, each with at least one real exemption event captured, zero "not known" errors.
+- **Unrelated discovery, included rather than discarded**: at the start of this round, `git
+  status` showed *uncommitted* changes to `grid4x4`/`arterial4x4`/`cologne3`/`cologne8`/
+  `ingolstadt7`'s `.add.xml` — not made by any prior round of this audit — adding
+  `timeToTeleport="-1"` to the `IC` vType (the incident-blocking dummy vehicle itself, not
+  `CAV4`). This looks like the repo owner's own in-progress edit (it exactly matches
+  `ingolstadt21.add.xml`'s pre-existing `IC` treatment) and makes sense on its own merits —
+  without it, SUMO's global teleport timeout could theoretically remove the very vehicle
+  simulating the blockage. Left in place (not reverted or overwritten) and folded into the
+  two new `cologne1`/`ingolstadt1` files for consistency, since they were built from the
+  same `ingolstadt21` template. Flagged here for visibility since it wasn't something any
+  audit round asked for or produced.
+
+### 3.3 `--strategy 3` fail-fast — already done in round 2, now has a test
+
+The behavior itself (`main.py` raising `NotImplementedError` for `--strategy 3` before any
+environment is constructed, plus updated `--help` text) was implemented in round 2, commit
+`3cdad97e3`, and re-confirmed live this round:
+
+```
+$ python3 main.py --agent MAXPRESSURE --map grid4x4 --eps 1 --strategy 3 --libsumo True
+...
+NotImplementedError: --strategy 3 (curriculum) is planned but not yet implemented. Use --strategy 1 (base) or --strategy 2 (incident).
+```
+
+What round 2 skipped was the **unit test** for it — `tests/test_main_cli.py` (new):
+asserts `--strategy 3` raises `NotImplementedError` (not `TypeError`) with a message
+matching `--strategy 3`, and that `--strategy 1`/`2` still parse normally. No SUMO required
+(the check runs before any environment is constructed). 2/2 passing.
+
+---
+
 ## Environment unification (`feature/unified-environment`)
 
 `base_env.py::BaseEnv` and `incident_env.py::IncidentEnv` were merged into a single class,
@@ -632,6 +760,11 @@ documented option that crashes on first use.** 🚩 Flagged, not implemented —
 actual curriculum-learning strategy (presumably a progressive incident-severity ramp) is a
 real feature to design, not a bug to fix blindly; left for human implementation.
 
+> **Update (round 2/3):** the crash itself is fixed — `main.py` now raises a clear
+> `NotImplementedError` for `--strategy 3` before any environment is constructed, and the
+> `--help` text no longer lists it as a working option. The curriculum feature itself is
+> still not implemented (that part of this finding stands). See §3.3.
+
 ## 2.8 Smoke test (Ground rule 4: run before/after changes)
 
 SUMO/libsumo/torch/pfrl are all installed in this environment, so an actual end-to-end run
@@ -674,6 +807,12 @@ issues, one of which was fixed and two of which are flagged rather than guessed 
    data would be inventing scientific input, squarely against ground rule 3. Needs the
    original CSVs restored from wherever they were generated (or committed if they exist
    only on a training machine).
+
+   > **Update (round 2/3):** the repo owner supplied the four CSVs; round 2 committed them
+   > (`ce3552646`) and fixed the CWD-dependent path resolution described above at the same
+   > time. Round 3 re-ran the exact failing command from this item live and confirmed it
+   > now completes on all four real-world networks. See §3.1 for the re-run evidence —
+   > resolved based on that, not on the files merely being present.
 3. **🚩 Flagged, not fixed — this session's own in-progress work, incomplete by design so
    far.** `Deployment.manage_incident_queue_teleport_exemption` (the teleport-exemption
    logic committed as this session's WIP baseline — see the top of this report) switches a
@@ -692,6 +831,11 @@ issues, one of which was fixed and two of which are flagged rather than guessed 
    over `speedDev`/`carFollowModel`/etc. from the commented-out legacy block) that are a
    design decision for whoever is developing that feature, not an audit fix.
 
+   > **Update (round 3):** the repo owner directed copying `ingolstadt21`'s definition
+   > verbatim (no new attributes invented) to the remaining networks, including two
+   > (`cologne1`, `ingolstadt1`) that needed a new `.add.xml` created from scratch. Done and
+   > live-verified on all 8 networks — see §3.2 for the per-network exemption-event counts.
+
 ⚪ With finding 1 fixed, the base scenario and the incident-scenario *mechanics*
 (Initializer sampling, block creation/removal, ICM/SSD code paths, logging) all run and
 produce sensible output — see the `grid4x4` incident-settings log lines produced during
@@ -704,10 +848,11 @@ changes.
 | Sev | Finding | Status |
 |---|---|---|
 | Not an issue | LSI/FPD/CR/AUC/RAUC/PDI metrics not implemented in this repo | ⚪ By design (confirmed round 2) — computed by a separate downstream pipeline from `metrics_*.csv`/`tripinfo_*.xml` |
-| Critical | `Ing21_prob.csv`/`Ing7_prob.csv`/`Col3_prob.csv`/`Col8_prob.csv` missing — incident scenario cannot run at all on any real-world network | 🚩 Flagged (data missing, cannot fabricate) |
+| Critical | `Ing21_prob.csv`/`Ing7_prob.csv`/`Col3_prob.csv`/`Col8_prob.csv` missing — incident scenario cannot run at all on any real-world network | ✅ Fixed round 2, re-verified round 3 by re-running the exact failing command live (§3.1) — data restored, path resolution made CWD-independent |
 | Bug | `IncidentEnv._build_sumo_command` route branch referenced a nonexistent `vtypes.add.xml` instead of the already-computed `self.additional` — broke grid4x4/arterial4x4 incident runs entirely | ✅ Fixed |
-| Bug (flagged) | `CAV4` teleport-exemption vType only active in `ingolstadt21.add.xml`; commented-out or absent elsewhere — incident scenario crashes on any queued vehicle for 5 of 7 other networks | 🚩 Flagged — this session's own unfinished WIP feature, not completed |
-| Bug (flagged) | `--strategy 3` ("curriculum") documented but unimplemented — crashes with `TypeError: range(None)` | 🚩 Flagged, not implemented |
+| Bug | `CAV4` teleport-exemption vType only active in `ingolstadt21.add.xml` elsewhere; `cologne1`/`ingolstadt1` had no `.add.xml` at all | ✅ Fixed round 3 for all 8 networks (§3.2) — live-verified on every network with real exemption events, not just absence of a crash |
+| Bug | `--strategy 3` ("curriculum") documented but unimplemented — crashed with `TypeError: range(None)` | ✅ Fixed round 2 (fails fast with `NotImplementedError`), test added round 3 (§3.3) |
+| Bug (flagged) | `Initializer.random_pos()` can return a negative position on short edges (`edge_length < 20`, `np.random.uniform(10, edge_length-10)` with `high < low` is undefined) — found live during round 3's CSV re-verification (§3.1) | 🚩 Flagged, not fixed — out of round 3's scope, needs an owner decision on the modeling fix |
 | Correctness note | Table B1's 5 incident categories aren't a selectable code parameter; single generic blockage mechanism | 🚩 Flagged, README describes actual configurability only |
 | Critical | No `.gitignore`; 1.3GB+ of generated route files and `.pyc` files tracked in git (6.4GB `.git`) | ✅ Fixed (gitignore + pycache removal) / 🚩 Flagged (arterial4x4 route files, size) |
 | Critical | Per-network learning rate defaults not implemented; CLI default silently overrides paper-correct values | ✅ Fixed (added hyperparameter config) |
