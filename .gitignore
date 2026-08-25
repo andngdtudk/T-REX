@@ -15,6 +15,8 @@ env/
 # SUMO / T-REX run artifacts
 results/
 results_*/
+environments/grid4x4/grid4x4/
+environments/arterial4x4/arterial4x4_extracted/
 *.tripinfo.xml
 tripinfo_*.xml
 metrics_*.csv

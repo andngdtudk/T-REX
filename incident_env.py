@@ -83,7 +83,7 @@ class IncidentEnv(gym.Env):
                 sumolib.checkBinary('sumo'),
                 '-n', self.net,
                 '-r', os.path.join(self.route, f"{self.map_name}_1.rou.xml"),
-                '-a', os.path.join(self.route, "vtypes.add.xml"),
+                '-a', self.additional,
                 '--no-warnings', 'True'
             ]
         else:

@@ -430,11 +430,81 @@ scientific-logic change ground rule 3 says must be flagged rather than silently 
 
 ---
 
+## 2.8 Smoke test (Ground rule 4: run before/after changes)
+
+SUMO/libsumo/torch/pfrl are all installed in this environment, so an actual end-to-end run
+was possible (not just `py_compile`). `LIBSUMO_AS_TRACI=1 python3 main.py --agent
+MAXPRESSURE --map ingolstadt7 --eps 1 --strategy 1` (base scenario, no incidents) ran
+cleanly start-to-finish. Testing the incident scenario (`--strategy 2`, which exercises the
+`Initializer`/`Deployment`/ICM/SSD code this audit touched) surfaced three **pre-existing**
+issues, one of which was fixed and two of which are flagged rather than guessed at:
+
+1. **✅ Fixed — real bug, confirmed by the crash itself.** `IncidentEnv._build_sumo_command`
+   (`incident_env.py:80-92`, the branch used for `grid4x4`/`arterial4x4`, which pass a route
+   *directory* rather than a `.sumocfg`) hardcoded `-a
+   os.path.join(self.route, "vtypes.add.xml")` — a file that **does not exist anywhere**
+   (confirmed: the tracked `grid4x4.zip`/`arterial4x4.zip` contain only `*.rou.xml` route
+   files, no `vtypes.add.xml`). The correct additional-file path was already computed a few
+   lines earlier as `self.additional` (`_find_additional_file()`, correctly resolving to
+   `environments/grid4x4/grid4x4.add.xml`, which does exist) and is already used correctly
+   by both the non-route branch of this same method and by `reset()`'s SUMO command — only
+   this one route-branch call site reinvented a different, wrong path. This crashed
+   `IncidentEnv.__init__` immediately (`TraCIException: Process Error`) for **every**
+   grid4x4/arterial4x4 incident run before the fix. Fixed by using `self.additional`
+   instead — same fix pattern the working branch already used, so no design guesswork
+   involved.
+
+2. **🚩 Critical, flagged, not fixed — missing incident-sampling input data for every
+   real-world network.** `Initializer.__init__` (`T_REX.py:62-69`) unconditionally loads
+   `Ing21_prob.csv`, `Ing7_prob.csv`, `Col3_prob.csv`, or `Col8_prob.csv` (bare relative
+   filenames, resolved against the process's current working directory) whenever
+   `map_name` is one of the four real-world networks the paper actually uses. **None of
+   these four CSV files exist anywhere in this repository, in git history, or under any
+   name resembling them** (confirmed by an exhaustive filename search). This means
+   `python main.py --map ingolstadt7 --strategy 2` (or `ingolstadt21`/`cologne3`/`cologne8`)
+   **crashes immediately** with `FileNotFoundError` before a single incident can be sampled
+   — reproduced live during this smoke test. Per Section 2.3, these files encode
+   "history flow data"-derived edge weights for the paper's non-uniform incident-location
+   sampling on real-world networks; grid4x4/arterial4x4 don't need them because they use
+   uniform `random_edge()` instead of `weighted_random_edge()`. **This is a hard blocker to
+   reproducing any incident-scenario result on Cologne/Ingolstadt from a clean checkout of
+   this repository as it stands.** Not fixed — fabricating plausible-looking edge-weight
+   data would be inventing scientific input, squarely against ground rule 3. Needs the
+   original CSVs restored from wherever they were generated (or committed if they exist
+   only on a training machine).
+3. **🚩 Flagged, not fixed — this session's own in-progress work, incomplete by design so
+   far.** `Deployment.manage_incident_queue_teleport_exemption` (the teleport-exemption
+   logic committed as this session's WIP baseline — see the top of this report) switches a
+   queued vehicle's type to `'CAV4'` (`T_REX.py:840`). `CAV4` is only an **active** vType in
+   `environments/ingolstadt21/ingolstadt21.add.xml` (added by the same WIP commit, with
+   `timeToTeleport="-1"`). In `grid4x4`, `arterial4x4`, `cologne3`, `cologne8`, and
+   `ingolstadt7`'s `.add.xml` files, `CAV4` exists only inside an unrelated **commented-out**
+   `<!-- ... -->` block (a pre-existing, older, disabled vType-distribution experiment,
+   unrelated to the teleport-exemption feature) — so `traci.vehicle.setType(veh, 'CAV4')`
+   throws `TraCIException: Vehicle type 'CAV4' is not known` the first time any vehicle
+   actually queues behind a blocked lane on any of those five networks (reproduced live
+   during this smoke test on `grid4x4`). `cologne1`/`ingolstadt1` have no `.add.xml` at all.
+   **Not fixed** — this is squarely the user's own active, unfinished feature work from
+   *this session* (only ingolstadt21 had been wired up when the audit began); completing it
+   for the other five networks means choosing vType attributes (vClass, whether to carry
+   over `speedDev`/`carFollowModel`/etc. from the commented-out legacy block) that are a
+   design decision for whoever is developing that feature, not an audit fix.
+
+⚪ With finding 1 fixed, the base scenario and the incident-scenario *mechanics*
+(Initializer sampling, block creation/removal, ICM/SSD code paths, logging) all run and
+produce sensible output — see the `grid4x4` incident-settings log lines produced during
+this test (realistic edge/lane/position/duration draws). The two remaining flagged items
+are data/feature-completeness gaps, not defects introduced or missed by this audit's code
+changes.
+
 ## 3. Summary table (all findings, severity-ordered)
 
 | Sev | Finding | Status |
 |---|---|---|
 | Critical | LSI/FPD/CR/AUC/RAUC/PDI metrics not implemented in this repo | 🚩 Flagged |
+| Critical | `Ing21_prob.csv`/`Ing7_prob.csv`/`Col3_prob.csv`/`Col8_prob.csv` missing — incident scenario cannot run at all on any real-world network | 🚩 Flagged (data missing, cannot fabricate) |
+| Bug | `IncidentEnv._build_sumo_command` route branch referenced a nonexistent `vtypes.add.xml` instead of the already-computed `self.additional` — broke grid4x4/arterial4x4 incident runs entirely | ✅ Fixed |
+| Bug (flagged) | `CAV4` teleport-exemption vType only active in `ingolstadt21.add.xml`; commented-out or absent elsewhere — incident scenario crashes on any queued vehicle for 5 of 7 other networks | 🚩 Flagged — this session's own unfinished WIP feature, not completed |
 | Critical | No `.gitignore`; 1.3GB+ of generated route files and `.pyc` files tracked in git (6.4GB `.git`) | ✅ Fixed (gitignore + pycache removal) / 🚩 Flagged (arterial4x4 route files, size) |
 | Critical | Per-network learning rate defaults not implemented; CLI default silently overrides paper-correct values | ✅ Fixed (added hyperparameter config) |
 | Bug | Duplicate `get_arcs_cost` definition, first is dead code | ✅ Fixed |
