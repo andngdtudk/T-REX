@@ -1,3 +1,4 @@
+import os
 import random
 import logging
 import numpy as np
@@ -53,15 +54,16 @@ class Initializer():
         
 
         # Using weighted probability for incident edge selection
-        # if the map is ingolstadt 
+        # if the map is ingolstadt
+        network_dir = os.path.dirname(self.net_path)
         if self.map_name == 'ingolstadt21':
-            self.edge_probabilities = self.load_edge_probability('Ing21_prob.csv')
+            self.edge_probabilities = self.load_edge_probability(os.path.join(network_dir, 'Ing21_prob.csv'))
         if self.map_name == 'ingolstadt7':
-            self.edge_probabilities = self.load_edge_probability('Ing7_prob.csv')
+            self.edge_probabilities = self.load_edge_probability(os.path.join(network_dir, 'Ing7_prob.csv'))
         if self.map_name == 'cologne3':
-            self.edge_probabilities = self.load_edge_probability('Col3_prob.csv')
+            self.edge_probabilities = self.load_edge_probability(os.path.join(network_dir, 'Col3_prob.csv'))
         if self.map_name == 'cologne8':
-            self.edge_probabilities = self.load_edge_probability('Col8_prob.csv')
+            self.edge_probabilities = self.load_edge_probability(os.path.join(network_dir, 'Col8_prob.csv'))
         
     def set_incident(self, edge=None, lanes=None, pos=None, start_time=None, duration=None, is_incident=False):
         '''
