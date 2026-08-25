@@ -73,6 +73,18 @@ def test_cav4_exemption_fires_on_every_network(network, caplog_debug, tmp_path):
         if not route_dir.is_dir():
             pytest.skip(f"{network} traffic-flow files not decompressed (see README Installation)")
 
+    # sumo_seed below only controls SUMO's own internal --seed (vehicle-level
+    # stochasticity); WHICH incident gets sampled (edge/lane/position/duration) is
+    # drawn from the global numpy RNG state Initializer.random() reseeds itself from
+    # (T_REX.py) -- without pinning that too, this test's outcome depends on test
+    # execution order/how much prior global RNG state other tests consumed, not just
+    # on network identity. Found the hard way: this test passed in isolation but
+    # failed as part of the full suite (ingolstadt1's randomly-sampled incident
+    # happened not to queue anyone within one episode that run). Match main.py's own
+    # np.random.seed(args.seed) pattern so this is genuinely deterministic.
+    import numpy as np
+    np.random.seed(1)
+
     from TREX_comp import states, rewards
     from TREX_comp.config.map_config import map_configs
     from TREX_comp.config.incident_config import IncidentConfig
