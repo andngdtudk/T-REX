@@ -353,6 +353,23 @@ Located in `T_REX.py::Deployment` (`ICM`, `calculate_combined_awareness`, `rerou
 | Start time `U(t_warmup, t_end − 1200)` | `random_time`: `np.rint(np.random.uniform(self.warm_up_time, self.end_time - 500)).astype(int)` (`T_REX.py:243`) | 🚩 **Mismatch, flagged not fixed.** Code uses `end_time - 500`, the paper's brief states `end_time - 1200`. This is a direct numeric discrepancy against the paper's stated formula (exactly the "formula doesn't match the paper's equation" case ground rule 3 says to flag, not guess-fix) — could be a bug, or a deliberate post-submission revision. **Needs a decision from someone with the manuscript in hand.** |
 | `warm_up_time` always `0` | implied nonzero (used as the lower bound of the incident start-time distribution) | `map_config.py`: every network entry has `'warmup': 0` | 🚩 Flagged, not changed — `warmup=0` for all 8 networks means the incident start-time distribution's lower bound is always 0 regardless of network; some networks additionally set a `start_time` (a simulation-of-day offset, e.g. Ingolstadt `57600`) which is a *different* field passed to SUMO, not `warm_up_time`. Whether this is intentional (warm-up handled via the time-of-day offset instead) or a gap needs a modeler's confirmation. |
 
+### 2.4b Incident *categories* (Table B1) are not a distinct code parameter
+
+Table B1 (per the audit brief) describes five incident categories: collision, stalled
+vehicle, roadworks, speed-reduction/environmental, and signal malfunction. `Initializer`/
+`Deployment` implement a single generic mechanism — N lanes of an edge become impassable
+(via a dummy `incident_veh_*` vehicle) for a sampled duration/position/lane-count — with no
+`incident_type`/`category` parameter anywhere in the class (confirmed by grep: the only
+"collision" logic in the file is inside `simulate_accident_based_on_blocked_lanes`, the
+disabled dead-code method from §1.3/1.4, not the active `sim_incident` path). ⚪/🚩 Not a bug
+— the generic blockage mechanism can represent any of the five categories conceptually
+(that's plausibly the paper's intent) — but there is no code-level way to *select* which
+category a given incident represents, so any claim that T-REX lets a user configure "a
+roadworks incident" vs. "a stalled-vehicle incident" would be aspirational, not actual.
+Flagged so the README (Phase 6) describes what's actually configurable (edge, lane count,
+position, start time, duration, severity `level`) rather than a five-category switch that
+doesn't exist in code.
+
 ### 2.5 Hyperparameters (Appendix B) vs. training config
 
 - `TREX_comp/config/agent_config.py`: `IDQN` and `MPLight` both hardcode `'GAMMA': 0.99`
@@ -430,6 +447,19 @@ scientific-logic change ground rule 3 says must be flagged rather than silently 
 
 ---
 
+### 2.6b `--strategy 3` ("curriculum") is documented but unimplemented, and crashes
+
+`main.py`'s `--strategy` flag is documented as `"1 = base, 2 = incident, 3 = curriculum"`
+(`main.py:47-48`), but there is no code path that treats `3` differently from `2`:
+`env_class = BaseEnv if args.strategy == 1 else IncidentEnv` sends both to `IncidentEnv`,
+and `level=2 if args.strategy == 2 else None` (`main.py:119`) means strategy `3` constructs
+`IncidentEnv(..., level=None)`. `IncidentEnv._initialize_incidents` then does
+`for i in range(self.level):` (`incident_env.py:250` at the time of writing) — `range(None)`
+raises `TypeError` immediately. **`--strategy 3` is not a working "curriculum" mode; it's a
+documented option that crashes on first use.** 🚩 Flagged, not implemented — building an
+actual curriculum-learning strategy (presumably a progressive incident-severity ramp) is a
+real feature to design, not a bug to fix blindly; left for human implementation.
+
 ## 2.8 Smoke test (Ground rule 4: run before/after changes)
 
 SUMO/libsumo/torch/pfrl are all installed in this environment, so an actual end-to-end run
@@ -505,6 +535,8 @@ changes.
 | Critical | `Ing21_prob.csv`/`Ing7_prob.csv`/`Col3_prob.csv`/`Col8_prob.csv` missing — incident scenario cannot run at all on any real-world network | 🚩 Flagged (data missing, cannot fabricate) |
 | Bug | `IncidentEnv._build_sumo_command` route branch referenced a nonexistent `vtypes.add.xml` instead of the already-computed `self.additional` — broke grid4x4/arterial4x4 incident runs entirely | ✅ Fixed |
 | Bug (flagged) | `CAV4` teleport-exemption vType only active in `ingolstadt21.add.xml`; commented-out or absent elsewhere — incident scenario crashes on any queued vehicle for 5 of 7 other networks | 🚩 Flagged — this session's own unfinished WIP feature, not completed |
+| Bug (flagged) | `--strategy 3` ("curriculum") documented but unimplemented — crashes with `TypeError: range(None)` | 🚩 Flagged, not implemented |
+| Correctness note | Table B1's 5 incident categories aren't a selectable code parameter; single generic blockage mechanism | 🚩 Flagged, README describes actual configurability only |
 | Critical | No `.gitignore`; 1.3GB+ of generated route files and `.pyc` files tracked in git (6.4GB `.git`) | ✅ Fixed (gitignore + pycache removal) / 🚩 Flagged (arterial4x4 route files, size) |
 | Critical | Per-network learning rate defaults not implemented; CLI default silently overrides paper-correct values | ✅ Fixed (added hyperparameter config) |
 | Bug | Duplicate `get_arcs_cost` definition, first is dead code | ✅ Fixed |
