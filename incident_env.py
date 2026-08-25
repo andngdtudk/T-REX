@@ -1,10 +1,13 @@
 import os
+import logging
 import gym
 import numpy as np
 import traci
 import sumolib
 from traffic_signal import Signal
 from T_REX import Initializer, Deployment
+
+logger = logging.getLogger(__name__)
 
 
 class IncidentEnv(gym.Env):
@@ -44,7 +47,7 @@ class IncidentEnv(gym.Env):
         self.additional = self._find_additional_file()
         self.scenario_folder = self._find_scenario_folder()
 
-        print(f"Initializing IncidentEnv: {self.connection_name}")
+        logger.info(f"Initializing IncidentEnv: {self.connection_name}")
 
         # === SUMO Initialization ===
         self.sumo = self._initialize_sumo()
@@ -58,7 +61,7 @@ class IncidentEnv(gym.Env):
         # === Final setup ===
         self._finalize_setup(run_name, lights)
 
-        print(f"Environment {self.connection_name} initialized successfully.")
+        logger.info(f"Environment {self.connection_name} initialized successfully.")
 
     def _find_additional_file(self):
         if self.net.endswith('.sumocfg'):
@@ -103,7 +106,7 @@ class IncidentEnv(gym.Env):
     def _initialize_signals(self, lights):
         # Detect traffic lights
         self.signal_ids = self.sumo.trafficlight.getIDList()
-        print(f"Detected {len(self.signal_ids)} traffic lights: {self.signal_ids}")
+        logger.info(f"Detected {len(self.signal_ids)} traffic lights: {self.signal_ids}")
 
         # Detect valid phases (no yellow, at least one green)
         self.phases = {
@@ -155,7 +158,7 @@ class IncidentEnv(gym.Env):
         full_log_dir = os.path.join(self.log_dir, self.connection_name)
         os.makedirs(full_log_dir, exist_ok=True)
 
-        print(f"Connection ID: {self.connection_name}")
+        logger.info(f"Connection ID: {self.connection_name}")
     
     def step_sim(self):
         """Advance the SUMO simulation by step_ratio steps, handle incidents if necessary."""
@@ -175,8 +178,10 @@ class IncidentEnv(gym.Env):
         if self.run != 0:
             if not self.libsumo:
                 traci.switch(self.connection_name)
-            traci.close()
-            self.save_metrics()
+            try:
+                traci.close()
+            finally:
+                self.save_metrics()
 
         self.metrics.clear()
         self.run += 1
@@ -209,30 +214,39 @@ class IncidentEnv(gym.Env):
             traci.start(self.sumo_cmd, label=self.connection_name)
             self.sumo = traci.getConnection(self.connection_name)
 
-        # Reinitialize incidents
-        self._initialize_incidents(pre_seed)
+        try:
+            # Reinitialize incidents
+            self._initialize_incidents(pre_seed)
 
-        # Warm-up simulation
-        for _ in range(self.warmup):
-            self.step_sim()
+            # Warm-up simulation
+            for _ in range(self.warmup):
+                self.step_sim()
 
-        # Dynamic agent control assignment
-        if self.run % 30 == 0 and self.ts_starter < len(self.all_ts_ids):
-            self.ts_starter += 1
+            # Dynamic agent control assignment
+            if self.run % 30 == 0 and self.ts_starter < len(self.all_ts_ids):
+                self.ts_starter += 1
 
-        self.signal_ids = self.all_ts_ids[:self.ts_starter]
+            self.signal_ids = self.all_ts_ids[:self.ts_starter]
 
-        # Re-initialize controlled signals
-        for ts in self.signal_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
-            self.wait_metric[ts] = 0.0
+            # Re-initialize controlled signals
+            for ts in self.signal_ids:
+                self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+                self.wait_metric[ts] = 0.0
 
-        for ts in self.signal_ids:
-            self.signals[ts].signals = self.signals
-            self.signals[ts].observe(self.step_length, self.max_distance)
+            for ts in self.signal_ids:
+                self.signals[ts].signals = self.signals
+                self.signals[ts].observe(self.step_length, self.max_distance)
 
-        # Return observations
-        observations = self.state_fn(self.signals)
+            # Return observations
+            observations = self.state_fn(self.signals)
+        except Exception:
+            # Episode setup failed after SUMO was already (re)started -- close
+            # the just-opened connection so it isn't leaked, then re-raise.
+            if not self.libsumo:
+                traci.switch(self.connection_name)
+            traci.close()
+            raise
+
         if self.gymma:
             return [observations[ts] for ts in self.ts_order]
         return observations
@@ -321,7 +335,7 @@ class IncidentEnv(gym.Env):
     def save_metrics(self):
         """Save collected metrics to CSV."""
         metrics_path = os.path.join(self.log_dir, self.connection_name, f'metrics_{self.run}.csv')
-        print(f"Saving metrics to {metrics_path}")
+        logger.info(f"Saving metrics to {metrics_path}")
         os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
         with open(metrics_path, 'w+') as output_file:
             for line in self.metrics:
@@ -336,5 +350,7 @@ class IncidentEnv(gym.Env):
         """Properly close SUMO simulation."""
         if not self.libsumo:
             traci.switch(self.connection_name)
-        traci.close()
-        self.save_metrics()
+        try:
+            traci.close()
+        finally:
+            self.save_metrics()

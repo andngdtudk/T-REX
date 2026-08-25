@@ -1,16 +1,18 @@
 import os
 import argparse
+import logging
 import multiprocessing as mp
-from pathlib import Path
 from collections import deque
 
 from TREX_comp.config.agent_config import agent_configs
 from TREX_comp.config.map_config import map_configs
 from TREX_comp.config.mdp_config import mdp_configs
+from TREX_comp.config.hyperparams import resolve_learning_rate
 
 from incident_env import IncidentEnv
 from base_env import BaseEnv
 
+logger = logging.getLogger(__name__)
 
 
 def parse_arguments():
@@ -46,13 +48,20 @@ def parse_arguments():
                         help="Training strategy: 1 = base, 2 = incident, 3 = curriculum.")
     parser.add_argument("--repeat", type=int, default=0,
                         help="How many episodes to repeat incidents from training in testing.")
-    parser.add_argument("--lr", type=float, default=0.001, help="Learning rate for the agent.")
-    
+    parser.add_argument("--lr", type=float, default=None,
+                        help="Learning rate for the agent. Defaults to the per-network/per-agent "
+                             "value in TREX_comp/config/hyperparams.yaml (Appendix B) when omitted.")
+    parser.add_argument("--verbose", action="store_true", help="Enable DEBUG-level logging.")
+
     return parser.parse_args()
 
 
 def main():
     args = parse_arguments()
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
     if args.libsumo and 'LIBSUMO_AS_TRACI' not in os.environ:
         raise EnvironmentError("Set LIBSUMO_AS_TRACI to a nonempty value to enable libsumo.")
@@ -127,27 +136,32 @@ def run_trial(args, trial):
         for key in env.obs_shape
     }
 
-    agent = alg(agt_config, obs_act, args.map, trial, lr=args.lr) if alg.__name__ in {'MPLight', 'IDQN'} else \
-            alg(agt_config, obs_act, args.map, trial)
+    if alg.__name__ in {'MPLight', 'IDQN'}:
+        lr = resolve_learning_rate(alg.__name__, args.map, override=args.lr)
+        agent = alg(agt_config, obs_act, args.map, trial, lr=lr) if lr is not None else \
+                alg(agt_config, obs_act, args.map, trial)
+    else:
+        agent = alg(agt_config, obs_act, args.map, trial)
 
     # === Training or Testing ===
-    if args.strategy == 1:
-        run_base_scenario(env, agent, args, agt_config)
-    else:
-        run_incident_scenario(env, agent, args, agt_config, alg)
-
-    env.close()
+    try:
+        if args.strategy == 1:
+            run_base_scenario(env, agent, args, agt_config)
+        else:
+            run_incident_scenario(env, agent, args, agt_config, alg)
+    finally:
+        env.close()
 
 
 # === Helper Functions ===
 
 def run_base_scenario(env, agent, args, agt_config):
     if agt_config['load']:
-        print('Testing under base condition...')
+        logger.info('Testing under base condition...')
         for _ in range(args.seps, args.eps):
             run_episode(env, agent)
     else:
-        print('Training under base condition...')
+        logger.info('Training under base condition...')
         for _ in range(args.eps):
             run_episode(env, agent)
 
@@ -159,24 +173,24 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
     seed_file_2 = f"{agent_name}{map_id}-seed_ic2.txt"
 
     if agt_config['load']:
-        print('Testing under incident condition...')
+        logger.info('Testing under incident condition...')
         if args.repeat > 0 and os.path.exists(seed_file_1) and os.path.exists(seed_file_2):
             last_seeds_ic1 = load_seeds(seed_file_1, args.repeat)
             last_seeds_ic2 = load_seeds(seed_file_2, args.repeat)
-            print(f"Loaded seeds from files: {list(last_seeds_ic1)}, {list(last_seeds_ic2)}")
+            logger.info(f"Loaded seeds from files: {list(last_seeds_ic1)}, {list(last_seeds_ic2)}")
 
             for _ in range(args.seps, args.eps):
                 seed_ic1, seed_ic2 = last_seeds_ic1.popleft(), last_seeds_ic2.popleft()
                 obs = env.reset(pre_seed=[seed_ic1, seed_ic2])
                 run_episode(env, agent, obs)
         else:
-            print('Testing without predefined incident seeds...')
+            logger.info('Testing without predefined incident seeds...')
             for _ in range(args.seps, args.eps):
                 run_episode(env, agent)
     else:
-        print('Training under incident condition...')
+        logger.info('Training under incident condition...')
         if args.repeat > 0:
-            print('Training and saving last incident seeds...')
+            logger.info('Training and saving last incident seeds...')
             last_seed_ic1 = deque(maxlen=args.repeat)
             last_seed_ic2 = deque(maxlen=args.repeat)
 
@@ -190,13 +204,14 @@ def run_incident_scenario(env, agent, args, agt_config, alg):
             save_seeds(seed_file_1, last_seed_ic1)
             save_seeds(seed_file_2, last_seed_ic2)
         else:
-            print('Training without saving incident seeds...')
+            logger.info('Training without saving incident seeds...')
             for _ in range(args.eps):
                 run_episode(env, agent)
 
 
 def run_episode(env, agent, obs=None):
-    obs = env.reset()
+    if obs is None:
+        obs = env.reset()
     done = False
     while not done:
         act = agent.act(obs)
@@ -213,7 +228,7 @@ def save_seeds(filename, seeds):
     with open(filename, "w") as f:
         for seed in seeds:
             f.write(f"{seed}\n")
-    print(f"Saved seeds to {filename}: {list(seeds)}")
+    logger.info(f"Saved seeds to {filename}: {list(seeds)}")
 
 
 if __name__ == "__main__":

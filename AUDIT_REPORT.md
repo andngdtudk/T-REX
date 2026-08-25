@@ -136,11 +136,169 @@ version requirement and clarifies the RESCO relationship.
 
 ### 1.4 Static analysis tool output
 
-See the background static-analysis agent's findings, merged below once available; if tools
-were not installed in this environment, that is itself recorded as a Phase 1 finding rather
-than a blocker.
+None of `ruff`/`flake8`/`black`/`isort`/`mypy`/`pylint` are installed in this environment;
+none were installed as part of the audit (per ground rules, not a blocker — recorded as a
+finding). 🚩 Flagged — added to the CI workflow (Phase 5) so they run automatically going
+forward, with `ruff`/`black`/`isort` configured but **not run over the whole tree yet in
+this pass** (a full reformat of 3,400+ lines of scientifically load-bearing code is a bigger
+change than this audit should make unreviewed; left for a follow-up PR once CI is in place
+to validate it). As a baseline sanity check, `python3 -m py_compile` was run over all 24
+`.py` files (root + `TREX_comp/`) — **all compile cleanly, zero syntax errors.**
 
-<!-- AGENT_STATIC_ANALYSIS_PLACEHOLDER -->
+**`print()` debug-output counts by file:** `T_REX.py` 46, `traffic_signal.py` 12, `main.py` 9,
+`graph.py` 7, `readXML.py` 5, `incident_env.py` 5, `base_env.py` 4, `TREX_comp/agents/fma2c.py` 3,
+`TREX_comp/agents/pfrl_dqn.py` 2, `TREX_comp/agents/mplight.py` 2, `readCSV.py` 2,
+`TREX_comp/agents/pfrl_ppo.py` 1, `TREX_comp/agents/ma2c.py` 1. No `logging` module used
+anywhere in the codebase prior to this audit. ✅ Fixed for the core simulation path
+(`T_REX.py`, `base_env.py`, `incident_env.py`, `main.py`) — converted to `logging` calls at
+appropriate levels, configurable via a new `--verbose` flag. Not touched in the RL agent
+files or `graph.py`/`readCSV.py`/`readXML.py` (lower-traffic, non-core paths) to keep the
+diff reviewable — flagged as a follow-up.
+
+**Bare `except:` clauses:** none found (0 hits). ⚪ Not an issue.
+
+**Broad/silent exception handling:**
+- `readXML.py:61` — `except Exception as e:` immediately followed by `#raise e` (commented
+  out) then `break` — silently swallows *any* parsing error and just stops the loop with no
+  record of what happened. ✅ Fixed — now logs the exception before breaking (control flow
+  unchanged, only visibility improved). This script is a standalone analysis tool not
+  imported by the main pipeline (see §1.1.6), so the fix carries no risk to training/eval.
+- `T_REX.py:631` — `except Exception as e:` that *does* `print(f"Error restoring vehicle...")`
+  — not silent. ⚪ Not an issue (print → logging conversion covers this as part of the
+  broader print cleanup).
+- `TREX_comp/agents/fma2c.py:12`, `TREX_comp/agents/ma2c.py:10` — `except ImportError: tf = None`
+  — legitimate optional-dependency guard. ⚪ Not an issue.
+- `readXML.py:69` (`FileNotFoundError`), `readXML.py:98` (`ET.ParseError`) — properly scoped.
+  ⚪ Not an issue.
+
+**TODO/FIXME/XXX:** one hit — `traffic_signal.py:108`, `# TODO raise Exception('Invalid signal config')`.
+🚩 Flagged, not resolved — implementing the TODO would change error-handling behavior in the
+signal-configuration path without a clear picture of what currently happens on an invalid
+config; left for human judgment.
+
+**Large commented-out dead-code blocks (5+ consecutive lines) in `T_REX.py`:** lines
+138-143, 277-282, 355-361, 389-460 (an entire disabled method,
+`simulate_accident_with_blocking`), 674-680, 801-805, 849-853, 879-889, 1072-1077,
+1360-1387 (old `add_information_noise`), 1570-1575, 1581-1587 (old `reroute_model`),
+1697-1710, 1721-1726, 1734-1738. Also `TREX_comp/config/signal_config.py:3-7` (dead
+`monaco_valid_acts`/`monaco_phase_pairs` config for an unused map). 🚩 Flagged as Phase 4
+cleanup candidates — **not removed**, since several of these are superseded-but-related
+versions of live logic (e.g. the commented `add_information_noise`/`reroute_model` sit right
+next to their replacements) that a maintainer may want to diff against or restore; deleting
+them is a judgment call outside an "unambiguous bug fix." (Note: `T_REX.py:833-841` was
+checked and is a genuine multi-line *prose* explanation of SUMO's `baseType@vehID` naming,
+not dead code — correctly left alone.)
+
+**Unused imports** (verified by grep, not just the agent's AST heuristic):
+`T_REX.py`: `os`, `sys`, `json` (only referenced inside a commented-out block, `T_REX.py:279`),
+`pandas as pd`, `xml.etree.ElementTree as ET`, `optparse`, `from sumolib import checkBinary`,
+`from time import time`. `main.py`: `from pathlib import Path`. ✅ Fixed — removed (each
+verified with a full-file grep for the bound name before removal; `random` and `csv` in
+`T_REX.py` **are** used and were kept).
+
+### 1.5 Duplicated logic (RL agents, envs)
+
+- **`base_env.py` vs `incident_env.py`**: near-line-for-line duplication of the constructor's
+  SUMO-command/phase-detection setup, `step_sim`, `reset`, `step`, `calc_metrics`,
+  `save_metrics`, `close`, `render` (~150+ lines). `IncidentEnv` does not subclass `BaseEnv` —
+  it's a full parallel reimplementation with incident hooks bolted on. See §1.3's cleanup
+  entry — 🚩 flagged, not refactored (too risky to auto-apply to the core training loop).
+- **`TREX_comp/agents/`**: `conv2d_size_out()` is defined identically in `pfrl_dqn.py:24-25`
+  and `pfrl_ppo.py:43-44`. `save()`/`load()` are byte-for-byte identical between
+  `pfrl_dqn.py:98-106` (`DQNAgent`) and `pfrl_ppo.py:83-91` (`PFRLPPOAgent`), neither pulled
+  into the shared `Agent` base class (`TREX_comp/agents/agent.py`). The "iterate `obs_act`,
+  build a per-signal sub-agent, optionally load from disk" pattern repeats near-identically
+  in `IDQN.__init__`, `IPPO.__init__`, and `MPLight.__init__`. By contrast, `maxpressure.py`'s
+  `MaxAgent` cleanly subclasses `maxwave.py`'s `WaveAgent` — a good example of the reuse
+  pattern the other agents lack. 🚩 Flagged as a Phase 4 refactor candidate — **not applied**,
+  since touching every RL agent's constructor risks subtle behavioral drift in code that
+  produced the paper's published numbers; left for human review with the specific
+  duplication sites listed here.
+
+### 1.6 Magic numbers vs. Appendix B (expanded)
+
+Beyond the ICM/AASHTO/incident-duration constants already covered in §2.2-2.4:
+`T_REX.py:333-336`'s `awareness_params` dict inlines eleven more ICM sub-model constants
+(`pi_news=0.7, pi_on=0.5, T_broadcast=5, vms_percentage=0.4, enter_time_vms=10, l2=200,
+beta_vms=2, pi_online=0.8, enter_time_online=5, sigma=10, t_obs_0=2, xi_obs=0.5`) with no
+config binding. More significantly: **`TREX_comp/agents/pfrl_ppo.py`'s optimizer/training
+hyperparameters are hardcoded inline, bypassing `agent_config.py` entirely** — `lr=2.5e-4,
+eps=1e-5` (`pfrl_ppo.py:65`), `clip_eps=0.1, update_interval=1024, minibatch_size=256,
+epochs=4, entropy_coef=0.001, max_grad_norm=0.5` (`pfrl_ppo.py:66-75`) — meaning IPPO's
+hyperparameters cannot be tuned or overridden via config the way IDQN/MPLight/FMA2C's can.
+🚩 Flagged as a Phase 5 config-centralization target; **not moved into config in this pass**
+(IPPO's hyperparameters aren't covered by the Appendix B summary given to this audit, so a
+correct config default couldn't be sourced with confidence — moving the values without
+knowing the intended per-network defaults would just relocate the magic numbers, not fix
+the underlying gap).
+
+**Confirmed real bug — `TREX_comp/agents/mplight.py:36`:** `MPLight.__init__` accepts an
+`lr` parameter (`def __init__(self, config, obs_act, map_name, thread_number, lr=0.005)`)
+but **never uses it** — the `DQNAgent(...)` call on line 36 hardcodes `lr=0.005` literally
+instead of passing through the received `lr`. This means MPLight silently ignores whatever
+learning rate its caller supplies (including `main.py`'s `--lr` CLI flag) and *always*
+trains at `0.005` regardless. ✅ **Fixed** — line 36 now passes `lr=lr`. This is an
+unambiguous parameter-plumbing bug (the parameter is accepted, documented by its presence
+in the signature, and then discarded) rather than a change to any formula — but it **does**
+change runtime behavior for anyone who was relying on `--lr` to actually take effect for
+MPLight, so it's called out explicitly here and in `CHANGELOG.md` rather than buried in a
+generic "bug fixes" line.
+
+### 1.6b Confirmed real bug — `main.py::run_episode` discards its `obs` parameter
+
+`run_episode(env, agent, obs=None)` (`main.py:199-205`, pre-fix) immediately overwrote
+its own `obs` parameter with a fresh, unseeded `env.reset()` call before ever using the
+value passed in:
+```python
+def run_episode(env, agent, obs=None):
+    obs = env.reset()   # <-- clobbers the caller's obs unconditionally
+    ...
+```
+`run_incident_scenario` (`main.py:156-196`) calls `run_episode(env, agent, obs)` in the two
+places that matter most for reproducibility: after `env.reset(pre_seed=[seed_ic1, seed_ic2])`
+when replaying fixed incident seeds for testing (`--repeat`), and after `env.reset()` when
+recording the seeds to save during training. In both cases the caller's carefully-seeded
+`obs`/environment state was discarded and the environment was silently reset **a second
+time** with a fresh, non-reproduced seed — meaning the entire `--repeat`
+(fixed-incident-seed testing/replay) feature never actually replayed the saved seeds; it
+silently ran with new random incidents every time while still reporting the seeds it
+*thought* it used. ✅ **Fixed** — `run_episode` now only calls `env.reset()` when `obs` is
+`None` (i.e. for the call sites that never had a pre-seeded observation to begin with);
+callers that already reset with the correct seed now have that reset honored. This is an
+unambiguous bug (a parameter accepted by the function signature and then immediately
+discarded before use, identical in kind to the `mplight.py` `lr` bug in §1.6) rather than a
+change to any sampling/scientific logic — but because it directly affects whether
+incident-seed replay (relevant to reproducing Experiment 3-style testing/transfer runs) ever
+worked, it's called out explicitly here and in `CHANGELOG.md`.
+
+### 1.7 TraCI/SUMO lifecycle safety (expanded)
+
+All 8 `traci.start(...)` call sites (`base_env.py:40,43,134,137`; `incident_env.py:97,100,206,209`)
+and all 6 matching `traci.close()` calls (`base_env.py:96,111,234`; `incident_env.py:150,178,339`)
+are unguarded. `main.py`'s `run_trial()` calls `env.close()` as a plain final statement
+(`main.py:139`) after `run_base_scenario`/`run_incident_scenario`, neither of which has any
+exception handling — an exception during a training/eval episode aborts the process without
+ever closing the SUMO connection. ✅ Fixed — `reset()`/`close()` in both env files now wrap
+the teardown (`traci.switch`/`traci.close`/`save_metrics`) in `try/finally`, and `main.py`'s
+`run_trial` wraps the run + `env.close()` in `try/finally` so a mid-episode exception still
+releases the SUMO subprocess.
+
+### 1.8 Environments directory: no committed run-artifacts
+
+Swept all 2,821 files under `environments/` for anything that looks like SUMO *output*
+(tripinfo/summary/result/checkpoint/csv/log) rather than input config — found none. Every
+tracked file is legitimate input config (2,806 `.rou.xml`, 8 `.net.xml`, 7 `.add.xml`,
+8 `.sumocfg`) plus the 5 CC-license PDFs and 2 zip archives already flagged in §1.1.2.
+⚪ Not an issue — no accidentally-committed run artifacts found.
+
+### 1.9 Files exceeding 1000 lines (maintainability)
+
+`T_REX.py` (2,018 lines — also the file with the most dead code, unused imports, and debug
+prints; the strongest single refactor/split candidate) and `TREX_comp/config/signal_config.py`
+(1,329 lines — mostly a static per-map signal/phase-pair data table, not logic). 🚩 Flagged,
+not split — a structural split of `T_REX.py` (e.g. separating `Initializer` and `Deployment`
+into their own modules) is a reasonable Phase 5 layout improvement but was left for human
+review given how much scientifically load-bearing logic lives in that one file.
 
 ---
 
@@ -213,12 +371,17 @@ Located in `T_REX.py::Deployment` (`ICM`, `calculate_combined_awareness`, `rerou
   numbers requires the operator to manually pass the *correct* `--lr` for every
   agent/network combination, undocumented anywhere in the repo or README. ✅ Addressed in
   Phase 5 — added a structured per-network/per-agent hyperparameter default table matching
-  Appendix B (`TREX_comp/config/hyperparams.yaml`), consulted by `main.py` whenever `--lr`
-  is not explicitly passed, so the correct paper default is used automatically per
-  network/agent, while an explicit `--lr` still overrides it. This does not change any
-  agent internals or formulas — it only fixes *which default value* is selected when the
-  user doesn't specify one, which is squarely a config/reproducibility bug, not a change to
-  scientific logic.
+  Appendix B (`TREX_comp/config/hyperparams.py`, a plain-Python config module for
+  consistency with the existing `agent_config.py`/`map_config.py`/`mdp_config.py` style
+  rather than introducing a new YAML dependency), consulted by `main.py` whenever `--lr`
+  is not explicitly passed (its CLI default changed from a hardcoded `0.001` to `None`, so
+  "not passed" is distinguishable from "explicitly passed"), so the correct paper default
+  is used automatically per network/agent, while an explicit `--lr` still overrides it.
+  This does not change any agent internals or formulas — it only fixes *which default
+  value* is selected when the user doesn't specify one, which is squarely a
+  config/reproducibility bug, not a change to scientific logic. Only IDQN/MPLight are
+  covered (the only two the audit brief gave explicit per-network grids for); FMA2C/IPPO
+  are untouched.
 - `FMA2C`/`MA2C` hyperparameters (`gamma=0.96`, `lr_init=2.5e-4`, etc., `agent_config.py:44-63`)
   — ❓ cannot verify against Appendix B; the task brief only gave IDQN/MPLight hyperparameter
   grids explicitly.
@@ -275,6 +438,8 @@ scientific-logic change ground rule 3 says must be flagged rather than silently 
 | Critical | No `.gitignore`; 1.3GB+ of generated route files and `.pyc` files tracked in git (6.4GB `.git`) | ✅ Fixed (gitignore + pycache removal) / 🚩 Flagged (arterial4x4 route files, size) |
 | Critical | Per-network learning rate defaults not implemented; CLI default silently overrides paper-correct values | ✅ Fixed (added hyperparameter config) |
 | Bug | Duplicate `get_arcs_cost` definition, first is dead code | ✅ Fixed |
+| Bug | `MPLight.__init__` accepts `lr` but hardcodes `0.005` for the underlying `DQNAgent`, ignoring it | ✅ Fixed |
+| Bug | `main.py::run_episode` discards its `obs` param, silently breaking `--repeat` seed replay | ✅ Fixed |
 | Bug | TraCI/SUMO lifecycle has no exception safety → subprocess leak on error | ✅ Fixed |
 | Bug (flagged) | Incident start-time upper bound `end_time-500` vs paper's `end_time-1200` | 🚩 Flagged |
 | Bug (flagged) | `slow_zone_speed=1.39` contradicts its own comment (`13.8`) and the paper's ~8km/h figure | 🚩 Flagged |

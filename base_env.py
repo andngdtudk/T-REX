@@ -2,11 +2,15 @@
 # Adapted from original: https://github.com/Pi-Star-Lab/RESCO
 
 import os
+import logging
 import numpy as np
 import traci
 import sumolib
 import gym
 from traffic_signal import Signal
+
+logger = logging.getLogger(__name__)
+
 
 class BaseEnv(gym.Env):
     def __init__(self, run_name, map_name, net, state_fn, reward_fn, route=None, gui=False, end_time=3600,
@@ -14,7 +18,7 @@ class BaseEnv(gym.Env):
                  warmup=0, gymma=False, run=0, level=None):
         self.libsumo = libsumo
         self.gymma = gymma  # gymma expects sequential list of states/rewards instead of dict
-        print(map_name, net, state_fn.__name__, reward_fn.__name__)
+        logger.info(f"{map_name} {net} {state_fn.__name__} {reward_fn.__name__}")
         self.log_dir = log_dir
         self.net = net
         self.route = route
@@ -42,63 +46,65 @@ class BaseEnv(gym.Env):
         else:
             traci.start(sumo_cmd, label = self.connection_name)
             self.sumo = traci.getConnection(self.connection_name)
-        self.signal_ids = self.sumo.trafficlight.getIDList()
-        print("lights", len(self.signal_ids), self.signal_ids)
 
-        # this should work on all SUMO versions
-        self.phases = {
-            lightID: [
-                p
-                for p in self.sumo.trafficlight.getAllProgramLogics(lightID)[0].getPhases()
-                if "y" not in p.state and "g" in p.state.lower()
-            ]
-            for lightID in self.signal_ids
-        }
+        try:
+            self.signal_ids = self.sumo.trafficlight.getIDList()
+            logger.info(f"lights {len(self.signal_ids)} {self.signal_ids}")
+
+            # this should work on all SUMO versions
+            self.phases = {
+                lightID: [
+                    p
+                    for p in self.sumo.trafficlight.getAllProgramLogics(lightID)[0].getPhases()
+                    if "y" not in p.state and "g" in p.state.lower()
+                ]
+                for lightID in self.signal_ids
+            }
 
 
-        self.signals = dict()
+            self.signals = dict()
 
-        self.all_ts_ids = lights if len(lights) > 0 else self.sumo.trafficlight.getIDList()
-        self.ts_starter = len(self.all_ts_ids)
-        self.signal_ids = []
+            self.all_ts_ids = lights if len(lights) > 0 else self.sumo.trafficlight.getIDList()
+            self.ts_starter = len(self.all_ts_ids)
+            self.signal_ids = []
 
-        # Pull signal observation shapes
-        self.obs_shape = dict()
-        self.observation_space = list()
-        self.action_space = list()
-        for ts in self.all_ts_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
-        for ts in self.all_ts_ids:
-            self.signals[ts].signals = self.signals
-            self.signals[ts].observe(self.step_length, self.max_distance)
-        observations = self.state_fn(self.signals)
-        self.ts_order = list()
-        for ts in observations:
-            # if ts == 'top_mgr' or ts == 'bot_mgr': continue     # Not a traffic signal
-            o_shape = observations[ts].shape
-            self.obs_shape[ts] = o_shape
-            o_shape = gym.spaces.Box(low=-np.inf, high=np.inf, shape=o_shape)
-            self.ts_order.append(ts)
-            self.observation_space.append(o_shape)
-            # if ts == 'top_mgr' or ts == 'bot_mgr': continue
-            if ts == 'bot_left_mgr' or ts == 'bot_right_mgr' or ts == 'top_left_mgr' or ts == 'top_right_mgr' or ts == 'top_mgr' or ts == 'bot_mgr':
-                self.action_space.append(4)
-            else:
-                self.action_space.append(gym.spaces.Discrete(len(self.phases[ts])))
+            # Pull signal observation shapes
+            self.obs_shape = dict()
+            self.observation_space = list()
+            self.action_space = list()
+            for ts in self.all_ts_ids:
+                self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+            for ts in self.all_ts_ids:
+                self.signals[ts].signals = self.signals
+                self.signals[ts].observe(self.step_length, self.max_distance)
+            observations = self.state_fn(self.signals)
+            self.ts_order = list()
+            for ts in observations:
+                # if ts == 'top_mgr' or ts == 'bot_mgr': continue     # Not a traffic signal
+                o_shape = observations[ts].shape
+                self.obs_shape[ts] = o_shape
+                o_shape = gym.spaces.Box(low=-np.inf, high=np.inf, shape=o_shape)
+                self.ts_order.append(ts)
+                self.observation_space.append(o_shape)
+                # if ts == 'top_mgr' or ts == 'bot_mgr': continue
+                if ts == 'bot_left_mgr' or ts == 'bot_right_mgr' or ts == 'top_left_mgr' or ts == 'top_right_mgr' or ts == 'top_mgr' or ts == 'bot_mgr':
+                    self.action_space.append(4)
+                else:
+                    self.action_space.append(gym.spaces.Discrete(len(self.phases[ts])))
 
-        self.n_agents = self.ts_starter
+            self.n_agents = self.ts_starter
 
-        self.run = run
-        self.metrics = []
-        self.wait_metric = dict()
-
-        if not self.libsumo: traci.switch(self.connection_name)
-        traci.close()
+            self.run = run
+            self.metrics = []
+            self.wait_metric = dict()
+        finally:
+            if not self.libsumo: traci.switch(self.connection_name)
+            traci.close()
         self.connection_name = run_name + '-' + map_name + '-' + str(len(lights)) + '-' + state_fn.__name__ + '-' + reward_fn.__name__
         if not os.path.exists(log_dir+self.connection_name):
             os.makedirs(log_dir+self.connection_name)
         self.sumo_cmd = None
-        print('Connection ID', self.connection_name)
+        logger.info(f'Connection ID {self.connection_name}')
 
     def step_sim(self):
         # The monaco scenario expects .25s steps instead of 1s, account for that here.
@@ -108,8 +114,10 @@ class BaseEnv(gym.Env):
     def reset(self):
         if self.run != 0:
             if not self.libsumo: traci.switch(self.connection_name)
-            traci.close()
-            self.save_metrics()
+            try:
+                traci.close()
+            finally:
+                self.save_metrics()
         self.metrics = []
 
         self.run += 1
@@ -137,30 +145,39 @@ class BaseEnv(gym.Env):
             traci.start(self.sumo_cmd, label=self.connection_name)
             self.sumo = traci.getConnection(self.connection_name)
 
-        for _ in range(self.warmup):
-            self.step_sim()
+        try:
+            for _ in range(self.warmup):
+                self.step_sim()
 
-        # 'Start' only signals set for control, rest run fixed controllers
-        if self.run % 30 == 0 and self.ts_starter < len(self.all_ts_ids): self.ts_starter += 1
-        self.signal_ids = []
-        for i in range(self.ts_starter):
-            self.signal_ids.append(self.all_ts_ids[i])
+            # 'Start' only signals set for control, rest run fixed controllers
+            if self.run % 30 == 0 and self.ts_starter < len(self.all_ts_ids): self.ts_starter += 1
+            self.signal_ids = []
+            for i in range(self.ts_starter):
+                self.signal_ids.append(self.all_ts_ids[i])
 
-        for ts in self.signal_ids:
-            self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
-            self.wait_metric[ts] = 0.0
-        for ts in self.signal_ids:
-            self.signals[ts].signals = self.signals
-            self.signals[ts].observe(self.step_length, self.max_distance)
+            for ts in self.signal_ids:
+                self.signals[ts] = Signal(self.map_name, self.sumo, ts, self.yellow_length, self.phases[ts])
+                self.wait_metric[ts] = 0.0
+            for ts in self.signal_ids:
+                self.signals[ts].signals = self.signals
+                self.signals[ts].observe(self.step_length, self.max_distance)
+
+            states = self.state_fn(self.signals)
+        except Exception:
+            # Episode setup failed after SUMO was already (re)started -- close
+            # the just-opened connection so it isn't leaked, then re-raise.
+            if not self.libsumo:
+                traci.switch(self.connection_name)
+            traci.close()
+            raise
 
         if self.gymma:
-            states = self.state_fn(self.signals)
             rets = list()
             for ts in self.ts_order:
                 rets.append(states[ts])
             return rets
 
-        return self.state_fn(self.signals)
+        return states
 
     def step(self, act):
         if self.gymma:
@@ -218,7 +235,7 @@ class BaseEnv(gym.Env):
 
     def save_metrics(self):
         log = os.path.join(self.log_dir, self.connection_name+ os.sep + 'metrics_' + str(self.run) + '.csv')
-        print('saving', log)
+        logger.info(f'saving {log}')
         with open(log, 'w+') as output_file:
             for line in self.metrics:
                 csv_line = ''
@@ -231,5 +248,7 @@ class BaseEnv(gym.Env):
 
     def close(self):
         if not self.libsumo: traci.switch(self.connection_name)
-        traci.close()
-        self.save_metrics()
+        try:
+            traci.close()
+        finally:
+            self.save_metrics()

@@ -1,17 +1,12 @@
-import os
-import sys
 import random
-import json
+import logging
 import numpy as np
-from time import time
 import sumolib
-import pandas as pd
-import xml.etree.ElementTree as ET
 import csv
-import optparse
 import traci
-from sumolib import checkBinary
 import heapq
+
+logger = logging.getLogger(__name__)
 
 class Initializer():
     '''
@@ -97,9 +92,9 @@ class Initializer():
         self.random_duration()
         self.is_incident = True
 
-        print('Incident settings:')
-        print(f'Incident happens at edge {self.edge} at time {self.start_time} lasting for {self.duration_time} seconds, '
-              f'lanes={self.lanes}, pos={self.pos}, random_seed={self.random_seed}')
+        logger.info('Incident settings:')
+        logger.info(f'Incident happens at edge {self.edge} at time {self.start_time} lasting for {self.duration_time} seconds, '
+                     f'lanes={self.lanes}, pos={self.pos}, random_seed={self.random_seed}')
     
     def load_edge_probability(self, weight_file_name):
         '''
@@ -187,7 +182,7 @@ class Initializer():
             downstream_edges_i = [edge_obj.getID() for edge_obj in downstream_edges_i_obj]
             if len(downstream_edges_i) == 0:
                 valid_edges.remove(edge)
-                print('remove edge {edge} as it is a dead end')
+                logger.debug(f'removing edge {edge} as it is a dead end')
         
         # Randomly select a valid edge
         self.edge = np.random.choice(valid_edges)
@@ -512,9 +507,9 @@ class Deployment():
                             traci.vehicle.setLaneChangeMode(back_vehicle, 0)
 
                             blocked_vehicles = [front_vehicle, back_vehicle]
-                            print(f"Single-lane accident simulated between {front_vehicle} and {back_vehicle} on {lane_id}")
+                            logger.debug(f"Single-lane accident simulated between {front_vehicle} and {back_vehicle} on {lane_id}")
                             for vehicle in blocked_vehicles:
-                                print('Blocked vehicle:', vehicle)
+                                logger.debug(f'Blocked vehicle: {vehicle}')
                                 traci.vehicle.setType(vehicle, 'CAV2')
                                 traci.vehicle.setSpeed(vehicle, 0)
                                 traci.vehicle.setLaneChangeMode(vehicle, 0)
@@ -556,9 +551,9 @@ class Deployment():
                                         traci.vehicle.setSpeed(veh_2, current_speed + speed_increase)
 
                                         blocked_vehicles = [veh_1, veh_2]
-                                        print(f"Two-lane accident simulated between {veh_1} and {veh_2} on edge {edge_id}")
+                                        logger.debug(f"Two-lane accident simulated between {veh_1} and {veh_2} on edge {edge_id}")
                                         for vehicle in blocked_vehicles:
-                                            print('Blocked vehicle:', vehicle)
+                                            logger.debug(f'Blocked vehicle: {vehicle}')
                                             traci.vehicle.setType(vehicle, 'CAV2')
                                             traci.vehicle.setSpeed(vehicle, 0)
                                             traci.vehicle.setLaneChangeMode(vehicle, 0)
@@ -612,9 +607,9 @@ class Deployment():
                                                     traci.vehicle.setLaneChangeMode(veh_3, 0)
                                                     blocked_vehicles.append(veh_3)
 
-                                                    print(f"Three-lane accident simulated with vehicles {veh_1}, {veh_2}, and {veh_3}")
+                                                    logger.debug(f"Three-lane accident simulated with vehicles {veh_1}, {veh_2}, and {veh_3}")
                                                     for vehicle in blocked_vehicles:
-                                                        print('Blocked vehicle:', vehicle)
+                                                        logger.debug(f'Blocked vehicle: {vehicle}')
                                                         traci.vehicle.setType(vehicle, 'CAV2')
                                                         traci.vehicle.setSpeed(vehicle, 0)
                                                         traci.vehicle.setLaneChangeMode(vehicle, 0)
@@ -629,7 +624,7 @@ class Deployment():
                             traci.vehicle.setSpeedMode(vehicle, 31)
                             traci.vehicle.setSpeed(vehicle, 10)
                         except Exception as e:
-                            print(f"Error restoring vehicle {vehicle}: {e}")
+                            logger.error(f"Error restoring vehicle {vehicle}: {e}")
 
                 blocked_vehicles.clear()
 
@@ -658,11 +653,11 @@ class Deployment():
                     # print((np.abs(veh_pos_on_edge - np.array(self.pos))))
                     if np.min(np.abs(veh_pos_on_edge - np.array(self.pos))) < 7:          # Checking the closest vehicle should be good enough
                         prob_veh = on_edge[np.argmin(np.abs(veh_pos_on_edge - np.array(self.pos)))]
-                        print(f"{prob_veh} is too close, removing it")
+                        logger.debug(f"{prob_veh} is too close, removing it")
                         traci.vehicle.remove(prob_veh)
                 
                 # Create the incident blocking the lane
-                print(f"run {self.run_num} step {step} creating block {self.incident_edge}_{lane}_{self.pos}_{self.start_step}")
+                logger.debug(f"run {self.run_num} step {step} creating block {self.incident_edge}_{lane}_{self.pos}_{self.start_step}")
                 traci.route.add(incident_route_id, [self.incident_edge, self.downstream_edges[0]])
                 traci.vehicle.add(vehID=incident_veh_id, routeID=incident_route_id, typeID='IC')
             
@@ -690,7 +685,7 @@ class Deployment():
         elif step==(self.start_step+self.duration_steps): # Removes block
             for lane in self.lanes:
                 incident_veh_id = f'incident_veh_{self.incident_edge}_{lane}_{self.pos}'
-                print(f"run {self.run_num} step {step} removing block {lane}_{self.pos}_{self.start_step}")
+                logger.debug(f"run {self.run_num} step {step} removing block {lane}_{self.pos}_{self.start_step}")
                 active_vehicles = traci.vehicle.getIDList()
                 if incident_veh_id in active_vehicles:
                     traci.vehicle.remove(vehID=incident_veh_id)
@@ -843,8 +838,8 @@ class Deployment():
                 if base_type != 'CAV4':
                     self.teleport_exempt_vehicles[veh] = base_type
                     traci.vehicle.setType(veh, 'CAV4')
-                    print(f"run {self.run_num} step {step} exempting queued vehicle {veh} "
-                          f"from teleport (incident on {self.incident_edge})")
+                    logger.debug(f"run {self.run_num} step {step} exempting queued vehicle {veh} "
+                                 f"from teleport (incident on {self.incident_edge})")
 
         # Restore any exempted vehicle that is no longer in the blocked set
         # (passed the incident, or the incident window has ended -- this
@@ -859,8 +854,8 @@ class Deployment():
             original_type = self.teleport_exempt_vehicles.pop(veh)
             if veh in active_vehicles:
                 traci.vehicle.setType(veh, original_type)
-                print(f"run {self.run_num} step {step} restoring vehicle {veh} to {original_type} "
-                      f"(no longer queued behind incident on {self.incident_edge})")
+                logger.debug(f"run {self.run_num} step {step} restoring vehicle {veh} to {original_type} "
+                             f"(no longer queued behind incident on {self.incident_edge})")
 
 
     def speed_adjustment_upstream(self, step):
@@ -1164,7 +1159,7 @@ class Deployment():
             # Assign the new route to the vehicle
             traci.vehicle.setRoute(vehicle_id, new_route)
         else:
-            print(f"Could not calculate a valid route for vehicle {vehicle_id}.")
+            logger.warning(f"Could not calculate a valid route for vehicle {vehicle_id}.")
 
 
     def get_shortest_path(self, current_edge, destination_edge):
@@ -1230,7 +1225,7 @@ class Deployment():
             # Assign the new route to the vehicle
             traci.vehicle.setRoute(vehicle_id, new_route)
         else:
-            print(f"Could not calculate a valid route for vehicle {vehicle_id}.")
+            logger.warning(f"Could not calculate a valid route for vehicle {vehicle_id}.")
 
 
 
@@ -1267,7 +1262,7 @@ class Deployment():
             next_edge = self.get_best_outgoing_edge(current_edge, destination_edge)
             if not next_edge:
                 # No valid outgoing edge found, terminate with the current route
-                print(f"No valid outgoing edge from {current_edge}. Stopping route calculation.")
+                logger.warning(f"No valid outgoing edge from {current_edge}. Stopping route calculation.")
                 break
             
             # Add the next edge to the route
@@ -1300,29 +1295,8 @@ class Deployment():
             # Set the calculated route for the vehicle
             traci.vehicle.setRoute(vehicle_id, new_route)
         else:
-            print(f"Could not calculate a valid route to the destination for vehicle {vehicle_id}.")
+            logger.warning(f"Could not calculate a valid route to the destination for vehicle {vehicle_id}.")
 
-
-
-    def get_arcs_cost(self, vehicle_id):
-        
-        # Get the upstream edge of the vehicle
-        current_edge = traci.vehicle.getRoadID(vehicle_id)
-
-        current_edge_obj = self.net.getEdge(current_edge)
-
-        upstream_edges_obj = list(current_edge_obj.getIncoming().keys())
-        upstream_edges = [edge_obj.getID() for edge_obj in upstream_edges_obj]
-
-        if not upstream_edges:
-            return []
-        
-        arc_costs = []
-        for edge in upstream_edges:
-            travel_time = traci.edge.getTraveltime(edge)
-            arc_costs.append(travel_time)
-        
-        return arc_costs
 
 
     def get_arcs_cost(self, vehicle_id):
@@ -1409,7 +1383,7 @@ class Deployment():
         values = np.array(values, dtype=np.float32)
         # Validate input values
         if values.size == 0:
-            print('Values:', values)
+            logger.error(f'Values: {values}')
             raise ValueError("Input 'values' cannot be empty or have zero dimensions.")
 
         # Sample driver type
@@ -1991,7 +1965,7 @@ class Deployment():
         teleported_vehicles = traci.simulation.getStartingTeleportIDList()
         if len(teleported_vehicles) != 0:
             for veh in teleported_vehicles:
-                print('Catched teleported {veh}, restoring standard speed')
+                logger.debug(f'Caught teleported vehicle {veh}, restoring standard speed')
                 # veh_class = traci.vehicle.getVehicleClass(veh)
                 traci.vehicle.setMaxSpeed(veh, 55.55)
 
