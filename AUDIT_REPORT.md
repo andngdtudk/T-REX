@@ -17,6 +17,25 @@ Status legend: ✅ Fixed · 🚩 Flagged for human review · ⚪ Not an issue ·
 
 ---
 
+## Needs owner decision (round 2)
+
+These three items are **deliberately left unresolved** — each is a numeric discrepancy
+between the running code and the paper/brief's stated value, in scientifically load-bearing
+sampling/behavior code. Only someone with the manuscript in hand (or who made the recent
+edit in the `slow_zone_speed` case) can say which side is authoritative; this audit will not
+guess. Full context for each is in the linked section below.
+
+| Item | Code value | Paper/brief value | File:line |
+|---|---|---|---|
+| Incident start-time upper bound | `end_time − 500` | `end_time − 1200` (Section 2.3) | `T_REX.py:240` |
+| Warm-up phase | `warmup=0` in all 10 network configs | nonzero warm-up implied by its own name/role as the incident start-time distribution's lower bound | `TREX_comp/config/map_config.py:11,22,33,44,59,70,81,92,103,114` |
+| `slow_zone_speed` | `1.39` (m/s) | contradicts its own inline comment (`# 13.8 is 50 km/h...`) and doesn't exactly match the paper's "~8 km/h / 5 mph" figure either | `T_REX.py:28` |
+
+See §2.4 ("Incident sampling") and §2.3 ("SSD-based speed adaptation") below for the full
+writeup of each, including why round 1 flagged rather than fixed them.
+
+---
+
 ## 0. Repository shape vs. the paper's four-module architecture
 
 | Paper module | Code location | Notes |
@@ -31,17 +50,18 @@ class/file names inside `T_REX.py` — there is no package-level grouping (see P
 finding on layout). ⚪ Architecture mapping itself is not a defect, just undocumented;
 addressed in the README rewrite (Phase 6).
 
-**Critical scope note:** the paper's Section 3.4 robustness metrics — **LSI, FPD, CR,
-AUC, RAUC, PDI** — have **no implementation anywhere in this repository**
+**Scope note (updated after round-2 clarification from the repo owner):** the paper's
+Section 3.4 robustness metrics — **LSI, FPD, CR, AUC, RAUC, PDI** — have **no
+implementation anywhere in this repository**
 (`grep -rniE "LSI|FPD|convergence_rate|RAUC|PDI\b|area_under|learning_stability"` across
-all `*.py` returns zero hits). Metric computation is evidently done downstream of this
-repo (a separate analysis/notebook step consuming `tripinfo_*.xml` / `metrics_*.csv`
-output), not inside T-REX itself. 🚩 **This means Phase 2.1 (diffing the metric formulas
-against the paper) and part of Phase 5.5 (metric unit tests) cannot be done against this
-codebase as it stands.** Flagged for human clarification: either (a) point the auditor at
-the separate metrics repo/script so it can be audited too, or (b) confirm metrics are
-intentionally out of scope for T-REX and adjust the paper's Figure-1/README claims
-accordingly.
+all `*.py` returns zero hits). This is **by design, not a gap**: T-REX's responsibility
+ends at producing raw per-episode performance-indicator logs; the Section 3.4 metrics are
+computed by a separate downstream analysis pipeline that is not part of this repository.
+Round 1 of this audit flagged this as an open question rather than assuming it — see
+§2.1 below for what T-REX actually logs, and the README's "Metrics & Analysis" section for
+the user-facing version of this same clarification. ⚪ Not an issue — Phase 2.1 (diffing the
+metric formulas against the paper) and the metrics half of Phase 5.5 (unit tests) are out of
+scope for this codebase, and no metric-computation code was written here.
 
 ---
 
@@ -306,7 +326,33 @@ review given how much scientifically load-bearing logic lives in that one file.
 
 ### 2.1 Robustness metrics (LSI, FPD, CR, AUC, RAUC, PDI)
 
-❓ **Cannot verify — not implemented in this repository.** See "Critical scope note" above.
+⚪ **By design, out of scope for this repository** (confirmed by the repo owner in round 2
+of this audit) — not a gap. T-REX writes two raw per-episode artifacts per training/eval
+run, and the Section 3.4 metrics are computed from these (or from SUMO's own tripinfo
+output) by a separate analysis pipeline not included here:
+
+1. **`results/<connection_name>/metrics_<run>.csv`** — written by
+   `calc_metrics`/`save_metrics` in both `base_env.py` (lines 200-222) and `incident_env.py`
+   (lines ~309-329, post-fix line numbers). One line per environment `step()` call
+   (i.e. per RL decision, not per SUMO simulation second), each line the `str()` of four
+   comma-joined Python values in this order: `step` (SUMO simulation time in seconds, an
+   int), `reward` (a `dict[signal_id, float]` from whichever `reward_fn` the agent config
+   selected — see `TREX_comp/rewards.py`), `max_queues` (`dict[signal_id, int]`, the largest
+   per-lane queue at that signal), `queue_lengths` (`dict[signal_id, int]`, summed
+   per-lane queue at that signal). **Not standard CSV** — the dict fields are Python
+   `repr()` text (`{'A0': 3, 'A1': 0, ...}`), not separate columns; downstream consumers
+   (e.g. `readCSV.py`) parse it with ad hoc string-splitting on `}`/`:` rather than a real
+   parser.
+2. **`results/<connection_name>/tripinfo_<run>.xml`** — SUMO's native
+   [tripinfo output](https://sumo.dlr.de/docs/Simulation/Output/TripInfo.html) (written
+   directly by SUMO via `--tripinfo-output`/`--tripinfo-output.write-unfinished`, set in
+   `base_env.py:136-138` and `incident_env.py:203-204`): one `<tripinfo>` element per
+   vehicle with `depart`/`arrival`/`duration`/`waitingTime`/`timeLoss`/etc. — this is what
+   `readXML.py`'s `avg_timeLoss`/`avg_duration`/`avg_waitingTime` helpers consume.
+
+Both are written per-episode under `args.log_dir` (default `./results/`); neither file
+format is itself an LSI/FPD/CR/AUC/RAUC/PDI value — those are computed from a *sequence* of
+these per-episode files across a training run, which is the downstream pipeline's job.
 
 ### 2.2 ICM rerouting model (Appendix A)
 
@@ -315,20 +361,22 @@ Located in `T_REX.py::Deployment` (`ICM`, `calculate_combined_awareness`, `rerou
 
 | Component | Code | Verdict |
 |---|---|---|
-| ICM parameters `β_0=-5, β_gain=2.5, β_loss=2.5` | `T_REX.py:339` `self.ICM_params = {'beta_0': -5, 'beta_gain': 2.5, 'beta_loss': 2.5}` | ✅ Matches paper exactly |
-| Binomial-logit rerouting decision `P = 1/(1+exp(-(β0 + β_gain·Δp - β_loss·Δw)))` | `T_REX.py:1589-1607` | ✅ Matches the standard binary-logit form described in the brief |
-| Awareness sources combined as `1-(1-news)(1-vms)(1-online)(1-obs)` | `T_REX.py:1682` | ✅ Structurally consistent with "FTI/FPI/OS/OB sources" combined into one probability (news≈FTI broadcast, vms≈FPI, online≈OS, obs≈OB, by naming) — **cannot verify the individual sub-formulas' exact functional forms** against Appendix A without the paper text (`calculate_arc_radio_awareness`, `calculate_vms_awareness`, `arc_online_awareness`, `calculate_observation_awareness` — not read line-by-line in this pass) |
-| Driver heterogeneity mix (experienced 40%/5%, novice 30%/10%, distracted 20%/20%, CAV 10%/1%) | `T_REX.py:1416-1427` `driver_prob = [0.4, 0.3, 0.2, 0.1]` for `['experienced','novice','distracted','CAV']`; `noise_std` = `0.05, 0.1, 0.2, 0.01` respectively | ✅ **Exact match** to Appendix B on both the population split and the per-type error rate |
+| ICM parameters `β_0=-5, β_gain=2.5, β_loss=2.5` | `T_REX.py:336` `self.ICM_params = {'beta_0': -5, 'beta_gain': 2.5, 'beta_loss': 2.5}` | ✅ Matches paper exactly |
+| Binomial-logit rerouting decision `P = 1/(1+exp(-(β0 + β_gain·Δp - β_loss·Δw)))` | `T_REX.py:1575-1593` | ✅ Matches the standard binary-logit form described in the brief; also now covered by `tests/test_icm.py` |
+| Awareness sources combined as `1-(1-news)(1-vms)(1-online)(1-obs)` | `T_REX.py:1668` | ✅ Structurally consistent with "FTI/FPI/OS/OB sources" combined into one probability (news≈FTI broadcast, vms≈FPI, online≈OS, obs≈OB, by naming) — **cannot verify the individual sub-formulas' exact functional forms** against Appendix A without the paper text (`calculate_arc_radio_awareness`, `calculate_vms_awareness`, `arc_online_awareness`, `calculate_observation_awareness` — not read line-by-line in this pass) |
+| Driver heterogeneity mix (experienced 40%/5%, novice 30%/10%, distracted 20%/20%, CAV 10%/1%) | `T_REX.py:1402-1413` `driver_prob = [0.4, 0.3, 0.2, 0.1]` for `['experienced','novice','distracted','CAV']`; `noise_std` = `0.05, 0.1, 0.2, 0.01` respectively | ✅ **Exact match** to Appendix B on both the population split and the per-type error rate |
 
 ### 2.3 SSD-based speed adaptation (Section 2.4.2)
 
 `T_REX.py::Deployment.speed_adjustment` (lines 700–754).
 
-- AASHTO perception-reaction time `t=2.5s` (`T_REX.py:719`) and deceleration `a=3.4 m/s²`
-  (`T_REX.py:720`), combined as `SSD = v·t + v²/(2a)` (`T_REX.py:721-723`) — ✅ **matches**
+- AASHTO perception-reaction time `t=2.5s` and deceleration `a=3.4 m/s²`
+  (`T_REX.py:698-699`, named class constants as of round 1's Phase 5 test-extraction —
+  previously inline magic numbers), combined as `SSD = v·t + v²/(2a)` in the extracted,
+  unit-tested `Deployment.calculate_ssd` classmethod (`T_REX.py:702-708`) — ✅ **matches**
   the AASHTO constants and the standard SSD formula stated in the brief.
 - **5 mph (~8 km/h) reduced-speed rule**: 🚩 **Flagged for human review, not changed.**
-  `self.slow_zone_speed` is set in `T_REX.py:32` to `1.39` (m/s) with the comment
+  `self.slow_zone_speed` is set in `T_REX.py:28` to `1.39` (m/s) with the comment
   `# 13.8 is 50 km/h should work for highway situations.` — the comment describes a value
   (13.8 m/s ≈ 50 km/h) that does **not match** the value actually assigned (`1.39` m/s ≈
   5.0 km/h ≈ 3.1 mph). Neither value matches the paper's stated "~8 km/h / 5 mph" figure
@@ -348,9 +396,9 @@ Located in `T_REX.py::Deployment` (`ICM`, `calculate_combined_awareness`, `rerou
 | Parameter | Paper | Code | Verdict |
 |---|---|---|---|
 | Blocked lane count | uniform | `random_lanes`: `np.random.randint(1, n_lanes+1)` (level 2) / `randint(1, n_lanes)` (level 1), lanes taken from either end, not fully random subset (commented-out fully-random alternative at `T_REX.py:225-226`) | ✅ Uniform count sampling matches; lane *contiguity* (blocking from one end rather than an arbitrary subset) is a modeling choice not contradicted by the brief's "uniform lane count" description |
-| Position `U(10, x_e − 10)` | `random_pos`: `np.random.uniform(10, edge_length - 10)` (`T_REX.py:236`) | ✅ **Exact match** |
-| Duration `~Exp(0.029)` | `random_duration`: `np.rint(np.random.exponential(1/0.029)).astype(int)*60` (`T_REX.py:252`) — note `numpy`'s `exponential(scale)` takes `scale=1/rate`, and the result is in **minutes**, multiplied by 60 for seconds | ✅ Matches `Exp(0.029)` under the standard rate parameterization, assuming the paper's rate is per-minute (consistent with the `*60` conversion and with realistic incident durations) |
-| Start time `U(t_warmup, t_end − 1200)` | `random_time`: `np.rint(np.random.uniform(self.warm_up_time, self.end_time - 500)).astype(int)` (`T_REX.py:243`) | 🚩 **Mismatch, flagged not fixed.** Code uses `end_time - 500`, the paper's brief states `end_time - 1200`. This is a direct numeric discrepancy against the paper's stated formula (exactly the "formula doesn't match the paper's equation" case ground rule 3 says to flag, not guess-fix) — could be a bug, or a deliberate post-submission revision. **Needs a decision from someone with the manuscript in hand.** |
+| Position `U(10, x_e − 10)` | `random_pos`: `np.random.uniform(10, edge_length - 10)` (`T_REX.py:233`) | ✅ **Exact match** |
+| Duration `~Exp(0.029)` | `random_duration`: `np.rint(np.random.exponential(1/0.029)).astype(int)*60` (`T_REX.py:249`) — note `numpy`'s `exponential(scale)` takes `scale=1/rate`, and the result is in **minutes**, multiplied by 60 for seconds | ✅ Matches `Exp(0.029)` under the standard rate parameterization, assuming the paper's rate is per-minute (consistent with the `*60` conversion and with realistic incident durations) |
+| Start time `U(t_warmup, t_end − 1200)` | `random_time`: `np.rint(np.random.uniform(self.warm_up_time, self.end_time - 500)).astype(int)` (`T_REX.py:240`) | 🚩 **Mismatch, flagged not fixed — see "Needs owner decision" at the top of this report.** Code uses `end_time - 500`, the paper's brief states `end_time - 1200`. This is a direct numeric discrepancy against the paper's stated formula (exactly the "formula doesn't match the paper's equation" case ground rule 3 says to flag, not guess-fix) — could be a bug, or a deliberate post-submission revision. **Needs a decision from someone with the manuscript in hand.** |
 | `warm_up_time` always `0` | implied nonzero (used as the lower bound of the incident start-time distribution) | `map_config.py`: every network entry has `'warmup': 0` | 🚩 Flagged, not changed — `warmup=0` for all 8 networks means the incident start-time distribution's lower bound is always 0 regardless of network; some networks additionally set a `start_time` (a simulation-of-day offset, e.g. Ingolstadt `57600`) which is a *different* field passed to SUMO, not `warm_up_time`. Whether this is intentional (warm-up handled via the time-of-day offset instead) or a gap needs a modeler's confirmation. |
 
 ### 2.4b Incident *categories* (Table B1) are not a distinct code parameter
@@ -531,7 +579,7 @@ changes.
 
 | Sev | Finding | Status |
 |---|---|---|
-| Critical | LSI/FPD/CR/AUC/RAUC/PDI metrics not implemented in this repo | 🚩 Flagged |
+| Not an issue | LSI/FPD/CR/AUC/RAUC/PDI metrics not implemented in this repo | ⚪ By design (confirmed round 2) — computed by a separate downstream pipeline from `metrics_*.csv`/`tripinfo_*.xml` |
 | Critical | `Ing21_prob.csv`/`Ing7_prob.csv`/`Col3_prob.csv`/`Col8_prob.csv` missing — incident scenario cannot run at all on any real-world network | 🚩 Flagged (data missing, cannot fabricate) |
 | Bug | `IncidentEnv._build_sumo_command` route branch referenced a nonexistent `vtypes.add.xml` instead of the already-computed `self.additional` — broke grid4x4/arterial4x4 incident runs entirely | ✅ Fixed |
 | Bug (flagged) | `CAV4` teleport-exemption vType only active in `ingolstadt21.add.xml`; commented-out or absent elsewhere — incident scenario crashes on any queued vehicle for 5 of 7 other networks | 🚩 Flagged — this session's own unfinished WIP feature, not completed |

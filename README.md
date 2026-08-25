@@ -23,11 +23,11 @@ degrades when the network is disrupted.
 > under Incidents: A Comparative Study"* (see [Citation](#citation)).
 
 **Before you rely on any number this repository produces**, read
-[`AUDIT_REPORT.md`](AUDIT_REPORT.md) — an independent code audit that found, among other
-things, that the incident scenario currently cannot run on any of the four real-world
-networks from a clean checkout (the incident-location-probability CSVs it depends on are
-missing from the repo), and that this repo does not itself implement the paper's
-LSI/FPD/CR/AUC/RAUC/PDI robustness metrics. Both are flagged there in detail.
+[`AUDIT_REPORT.md`](AUDIT_REPORT.md) — an independent code audit. It also documents a
+handful of paper-vs-code numeric mismatches (e.g. the incident start-time sampling window,
+warm-up duration, SUMO seed control) that are flagged for the repo owner's decision rather
+than silently resolved one way or the other; check there before assuming a given run
+reproduces a specific published number.
 
 ## Key features
 
@@ -141,19 +141,45 @@ export LIBSUMO_AS_TRACI=1
 # Max-pressure baseline on Grid4x4, no incidents
 python main.py --agent MAXPRESSURE --map grid4x4 --eps 10 --strategy 1 --libsumo True
 
-# Same, but with incidents injected (Initializer/Deployment active)
-python main.py --agent MAXPRESSURE --map grid4x4 --eps 10 --strategy 2 --libsumo True
+# Same, but with incidents injected (Initializer/Deployment active), seed-controlled
+python main.py --agent MAXPRESSURE --map grid4x4 --eps 10 --strategy 2 --libsumo True --seed 0
 ```
 
 `--strategy 1` uses `BaseEnv` (no incidents); `--strategy 2` uses `IncidentEnv` with
-randomly sampled incidents each episode. **`--strategy 3` ("curriculum") is present in the
-CLI help text but not actually implemented — it currently crashes; see `AUDIT_REPORT.md`
+randomly sampled incidents each episode. `--seed` (default `42`) seeds Python's `random`,
+`numpy`, `torch`, and SUMO's own `--seed` (offset per episode) for a fully reproducible run;
+pass `--no-seed-sumo` to fall back to SUMO's unseeded `--random` while still seeding
+Python/numpy/torch. **`--strategy 3` ("curriculum") is present in the CLI help text but not
+yet implemented — it raises `NotImplementedError` rather than running; see `AUDIT_REPORT.md`
 Section 2.6b.**
 
 Swap `--agent` for any of `STOCHASTIC`, `MAXWAVE`, `MAXPRESSURE`, `IDQN`, `IPPO`, `MPLight`,
 `FMA2C`, and `--map` for `grid4x4`, `arterial4x4`, `ingolstadt1/7/21`, `cologne1/3/8`.
 IDQN/IPPO/MPLight/FMA2C additionally require `torch`, `tensorflow`, and `pfrl` (all in
 `requirements.txt`).
+
+## Metrics & analysis
+
+T-REX itself only produces **raw per-episode logs**; it does not compute the paper's
+Section 3.4 robustness metrics (LSI, FPD, CR, AUC, RAUC, PDI) — those are computed by a
+separate downstream analysis pipeline, not part of this repository. Each episode writes,
+under `results/<connection_name>/` (`connection_name` encodes agent/trial/map/state/reward
+function):
+
+- **`metrics_<run>.csv`** — one line per environment `step()` (i.e. per RL decision):
+  `step, reward, max_queues, queue_lengths`, where the latter three are `str()`-rendered
+  Python dicts keyed by signal ID (e.g. `{'A0': 3, 'A1': 0, ...}`) — not standard
+  one-value-per-column CSV. Written by `calc_metrics`/`save_metrics` in `base_env.py`/
+  `incident_env.py`.
+- **`tripinfo_<run>.xml`** — SUMO's native per-vehicle
+  [tripinfo output](https://sumo.dlr.de/docs/Simulation/Output/TripInfo.html)
+  (`depart`/`arrival`/`duration`/`waitingTime`/`timeLoss`/etc. per vehicle), written
+  directly by SUMO via `--tripinfo-output --tripinfo-output.write-unfinished`.
+
+Whatever computes LSI/FPD/CR/AUC/RAUC/PDI for the paper consumes these two files (or their
+aggregation) across a training run's episodes; see `readXML.py`/`graph.py` for example
+ad hoc post-processing of `tripinfo_*.xml` (not part of the core pipeline — see Repository
+structure below).
 
 ## Reproducing the paper's experiments
 
@@ -164,20 +190,21 @@ each experiment corresponds to a particular combination of CLI flags:
 
 | Experiment | Flags | Notes |
 |---|---|---|
-| 1 — Learning performance | `--strategy 2 --agent <method> --map <network> --eps <N>` | Trains one RL-TSC method under incidents from scratch; repeat per method/network. |
+| 1 — Learning performance | `--strategy 2 --agent <method> --map <network> --eps <N> --seed <s>` | Trains one RL-TSC method under incidents from scratch; repeat per method/network/seed. |
 | 2 — Testing/generalization | `--strategy 2 --load True --agent <method> --map <network>` | Loads a trained model (`--load True`) and runs held-out episodes without further training. |
 | 3 — Transferability/online adaptation | `--strategy 2 --repeat <N> --load True` | `--repeat` saves (during training) and later replays (during testing) a fixed set of the last `N` incident seeds, for evaluating a trained agent against a controlled, reproducible incident set — see `main.py::run_incident_scenario`. |
 | Table 1 — runtime/scalability | any of the above | Wall-clock/episode is not separately instrumented in this repo; time your own runs per network. |
 
-**Known reproducibility gaps** (see `AUDIT_REPORT.md` for the full analysis — do not treat
-this table as a guarantee that these commands reproduce the paper's published numbers):
-the per-network learning-rate defaults from Appendix B are only wired up for IDQN/MPLight
-(`TREX_comp/config/hyperparams.py`); SUMO is always launched with `--random` rather than a
-controlled `--seed`, so full seed-for-seed reproduction of a specific run isn't currently
-possible even where the incident seed is fixed; and the incident-location-probability CSVs
-required for weighted sampling on Ingolstadt/Cologne are missing from the repo entirely
-(§2.8 of the audit report), so `--strategy 2` cannot run on those four networks from a
-clean checkout until that data is restored.
+The paper's results are averaged over 5 random seeds — run each configuration with 5
+different `--seed` values (e.g. `0`–`4`) and average externally.
+
+**Remaining reproducibility caveats** (see `AUDIT_REPORT.md` for the full analysis — do not
+treat this table as a guarantee that these commands reproduce the paper's published
+numbers): the per-network learning-rate defaults from Appendix B are only wired up for
+IDQN/MPLight (`TREX_comp/config/hyperparams.py`); and a handful of paper-vs-code numeric
+mismatches (incident start-time sampling window, warm-up duration, `slow_zone_speed`) are
+flagged in `AUDIT_REPORT.md` under "Needs owner decision" rather than resolved one way or
+the other, since only someone with the manuscript in hand can say which side is correct.
 
 ## Configuring incidents
 
