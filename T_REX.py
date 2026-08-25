@@ -692,6 +692,20 @@ class Deployment():
                 self.remove_speed_limit()
         return
     
+    # AASHTO stopping-sight-distance constants (Section 2.4.2).
+    SSD_PERCEPTION_REACTION_TIME = 2.5  # seconds
+    SSD_DECELERATION = 3.4  # m/s^2
+
+    @classmethod
+    def calculate_ssd(cls, speed):
+        '''
+        Stopping Sight Distance for a vehicle at the given speed (m/s), per AASHTO:
+        SSD = v*t_perception_reaction + v^2 / (2*a_deceleration).
+        '''
+        perception_reaction_distance = speed * cls.SSD_PERCEPTION_REACTION_TIME
+        braking_distance = (speed ** 2) / (2 * cls.SSD_DECELERATION)
+        return perception_reaction_distance + braking_distance
+
     def speed_adjustment(self, step):
         '''
         Logic for slowing down traffic around incident.
@@ -711,11 +725,7 @@ class Deployment():
 
                     # Calculate SSD only once per vehicle
                     if veh not in self.vehicle_ssd:
-                        perception_reaction_time = 2.5
-                        deceleration = 3.4
-                        perception_reaction_distance = veh_speed * perception_reaction_time
-                        braking_distance = (veh_speed ** 2) / (2 * deceleration)
-                        SSD = perception_reaction_distance + braking_distance
+                        SSD = self.calculate_ssd(veh_speed)
                         self.vehicle_ssd[veh] = SSD
 
                     else:

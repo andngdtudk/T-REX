@@ -1,9 +1,23 @@
-numpy
-pandas
-gym
-sumolib
-traci
-torch
-tensorflow # because you used tensorflow.compat.v1
-pfrl
-eclipse-sumo
+# T-REX Python dependencies.
+#
+# Lower bounds below are what this audit's end-to-end smoke test
+# (`python main.py --agent MAXPRESSURE --map <network> --strategy 1|2`) actually ran
+# against successfully; they are NOT confirmed to be the exact versions used to produce
+# the paper's published results, since no version file existed in this repo prior to this
+# audit. If you have the original training environment's `pip freeze`, replace these with
+# exact pins instead.
+numpy>=1.24
+pandas>=2.0
+gym>=0.26,<0.27          # OpenAI Gym API (not gymnasium) -- used via the classic gym.Env interface
+sumolib>=1.19
+traci>=1.19
+torch>=2.0
+tensorflow>=2.10         # used via tensorflow.compat.v1 (see TREX_comp/agents/{fma2c,ma2c}.py)
+pfrl>=0.4
+eclipse-sumo>=1.19       # PyPI wheel bundling the SUMO binaries; alternatively install SUMO
+                         # separately (see README) and only pip-install the packages above
+
+# Not required to train/evaluate with main.py -- only needed by the standalone analysis
+# script readXML.py, which imports `resco_benchmark`. RESCO is not published on PyPI;
+# install it from source if you need that script: pip install git+https://github.com/Pi-Star-Lab/RESCO
+
