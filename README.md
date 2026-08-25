@@ -56,23 +56,32 @@ they map onto code as follows:
 ┌─────────────────────┐     ┌──────────────────┐     ┌──────────────────────┐     ┌─────────────────────┐
 │  Network Environment │────▶│    Initializer    │────▶│      Deployment       │────▶│    RL Interaction     │
 │                      │     │                    │     │                       │     │                       │
-│ base_env.py          │     │ T_REX.py::         │     │ T_REX.py::            │     │ TREX_comp/            │
-│ incident_env.py      │     │  Initializer       │     │  Deployment           │     │  agents/, rewards.py, │
-│ traffic_signal.py    │     │                    │     │                       │     │  states.py, config/   │
-│ environments/*       │     │ samples edge/lanes/ │     │ injects the incident   │     │ + main.py entry point │
-│ (SUMO network,       │     │ position/duration/  │     │ via TraCI, runs ICM     │     │                       │
-│  routes, signal      │     │ start time          │     │ rerouting + SSD speed   │     │ Gym-style state/      │
-│  plans, vtypes)      │     │                    │     │ adaptation + lane-      │     │ action/reward loop     │
+│ trex_env.py           │     │ T_REX.py::         │     │ T_REX.py::            │     │ TREX_comp/            │
+│ traffic_signal.py    │     │  Initializer       │     │  Deployment           │     │  agents/, rewards.py, │
+│ environments/*       │     │                    │     │                       │     │  states.py, config/   │
+│ (SUMO network,       │     │ samples edge/lanes/ │     │ injects the incident   │     │ + main.py entry point │
+│  routes, signal      │     │ position/duration/  │     │ via TraCI, runs ICM     │     │                       │
+│  plans, vtypes)      │     │ start time          │     │ rerouting + SSD speed   │     │ Gym-style state/      │
+│                      │     │                    │     │ adaptation + lane-      │     │ action/reward loop     │
 │                      │     │                    │     │ changing each step      │     │                       │
 └─────────────────────┘     └──────────────────┘     └──────────────────────┘     └─────────────────────┘
 ```
 
-`IncidentEnv` (in `incident_env.py`) wires these together: each episode it constructs an
-`Initializer` (sampling or accepting fixed incident parameters), and if an incident is
-active, a `Deployment` that runs the rerouting/speed/lane-change logic once per simulation
-step. `BaseEnv` (`base_env.py`) is the incident-free counterpart used for `--strategy 1`
-training. Both expose the same `reset()`/`step()`/`close()` Gym interface that
-`TREX_comp`'s agents and `main.py`'s training loop consume.
+`TrexEnv` (in `trex_env.py`) is the single Gym environment class that wires these together,
+with incidents controlled by one constructor parameter, `incident_config`
+(`TREX_comp/config/incident_config.py`): `None` disables incidents entirely — the
+`Initializer`/`Deployment` subsystem is never constructed or invoked, not run-and-discarded
+— while an `IncidentConfig(...)` enables them. Each episode with incidents enabled
+constructs an `Initializer` (sampling or accepting fixed incident parameters) and, if an
+incident is active, a `Deployment` that runs the rerouting/speed/lane-change logic once per
+simulation step. `main.py` selects `IncidentConfig` vs. `None` from the existing
+`--strategy` flag (1 = off, 2 = on) rather than adding a second toggle.
+
+> `base_env.py`/`incident_env.py` (the pre-refactor `BaseEnv`/`IncidentEnv` classes) still
+> work as thin, deprecated wrappers around `TrexEnv` for backward compatibility, but new code
+> should use `TrexEnv` directly. See `trex_env.py`'s docstring and `AUDIT_REPORT.md` for what
+> changed when they were merged (one real bug fixed: `BaseEnv`'s route-file path construction
+> didn't match `IncidentEnv`'s/`main.py`'s, and was broken on `grid4x4`/`arterial4x4`).
 
 ## Installation
 
@@ -108,7 +117,7 @@ To run libsumo (faster, single-process SUMO) instead of TraCI, set
 ### 3. RESCO
 
 `TREX_comp/` is a self-contained adaptation of [RESCO](https://github.com/Pi-Star-Lab/RESCO)'s
-agent/environment interface (see `base_env.py:2`) — you do **not** need to install RESCO
+agent/environment interface (see `trex_env.py`'s module docstring) — you do **not** need to install RESCO
 separately to train or evaluate with `main.py`. The `resco_benchmark` package is imported
 only by the standalone analysis script `readXML.py`, which is not part of the training
 pipeline; install it from source (`pip install git+https://github.com/Pi-Star-Lab/RESCO`)
@@ -145,8 +154,10 @@ python main.py --agent MAXPRESSURE --map grid4x4 --eps 10 --strategy 1 --libsumo
 python main.py --agent MAXPRESSURE --map grid4x4 --eps 10 --strategy 2 --libsumo True --seed 0
 ```
 
-`--strategy 1` uses `BaseEnv` (no incidents); `--strategy 2` uses `IncidentEnv` with
-randomly sampled incidents each episode. `--seed` (default `42`) seeds Python's `random`,
+`--strategy 1` constructs `TrexEnv(incident_config=None)` (no incidents); `--strategy 2`
+constructs `TrexEnv(incident_config=IncidentConfig(level=2))` with randomly sampled
+incidents each episode — one environment class either way, see Architecture above.
+`--seed` (default `42`) seeds Python's `random`,
 `numpy`, `torch`, and SUMO's own `--seed` (offset per episode) for a fully reproducible run;
 pass `--no-seed-sumo` to fall back to SUMO's unseeded `--random` while still seeding
 Python/numpy/torch. **`--strategy 3` ("curriculum") is present in the CLI help text but not
@@ -169,8 +180,7 @@ function):
 - **`metrics_<run>.csv`** — one line per environment `step()` (i.e. per RL decision):
   `step, reward, max_queues, queue_lengths`, where the latter three are `str()`-rendered
   Python dicts keyed by signal ID (e.g. `{'A0': 3, 'A1': 0, ...}`) — not standard
-  one-value-per-column CSV. Written by `calc_metrics`/`save_metrics` in `base_env.py`/
-  `incident_env.py`.
+  one-value-per-column CSV. Written by `TrexEnv.calc_metrics`/`save_metrics` in `trex_env.py`.
 - **`tripinfo_<run>.xml`** — SUMO's native per-vehicle
   [tripinfo output](https://sumo.dlr.de/docs/Simulation/Output/TripInfo.html)
   (`depart`/`arrival`/`duration`/`waitingTime`/`timeLoss`/etc. per vehicle), written
@@ -210,7 +220,7 @@ the other, since only someone with the manuscript in hand can say which side is 
 
 `Initializer` supports two modes:
 
-**Random sampling** (used by `IncidentEnv` each episode): edge (weighted by historical flow
+**Random sampling** (used by `TrexEnv` each episode when `incident_config` is set): edge (weighted by historical flow
 data for Ingolstadt/Cologne networks, uniform otherwise), number of blocked lanes, position
 along the edge (`U(10, edge_length−10)`), start time, and duration
 (`~Exponential(rate=0.029)` minutes) are all drawn automatically — see `Initializer.random()`.
@@ -245,8 +255,10 @@ between them — see `AUDIT_REPORT.md` Section 2.4b.
 ```
 T_REX.py                 Initializer + Deployment: incident sampling, ICM rerouting,
                           SSD speed adaptation, lane-changing, teleport-exemption
-base_env.py               Gym env, no incidents (--strategy 1)
-incident_env.py            Gym env with incidents (--strategy 2), wraps Initializer/Deployment
+trex_env.py                Gym env (TrexEnv); incident_config=None/IncidentConfig(...)
+                              selects --strategy 1/2
+base_env.py, incident_env.py  Deprecated thin wrappers around TrexEnv, kept for backward
+                              compatibility -- see their docstrings
 traffic_signal.py          Per-intersection Signal class (phases, observations)
 main.py                    CLI entry point / training loop
 graph.py, readCSV.py,       Ad hoc analysis/plotting scripts (not part of the core pipeline;
@@ -255,10 +267,13 @@ TREX_comp/
   agents/                   RL-TSC method implementations (IDQN, IPPO, MPLight, FMA2C,
                               Max-pressure, Greedy/MAXWAVE, Random/STOCHASTIC)
   config/                    agent_config.py, map_config.py, mdp_config.py, signal_config.py,
-                              hyperparams.py (per-network learning-rate defaults)
+                              hyperparams.py (per-network learning-rate defaults),
+                              incident_config.py (IncidentConfig schema + example configs)
   rewards.py, states.py      Reward functions and observation functions per method
 environments/               SUMO network/route/additional files per benchmark network
-tests/                      pytest unit tests (SSD, ICM, incident sampling) -- no SUMO needed
+tests/                      pytest unit tests (SSD, ICM, incident sampling, env-unification
+                              regression) -- most need no SUMO; the unification regression
+                              test and a live smoke test require it, and skip otherwise
 .github/workflows/ci.yml    CI: pytest (required) + ruff/black/isort (advisory)
 AUDIT_REPORT.md             Independent code audit: findings, fixes, and open issues
 CHANGELOG.md                What changed in the audit, by phase

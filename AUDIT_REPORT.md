@@ -1,6 +1,6 @@
 # T-REX Repository Audit Report
 
-**Branch:** `audit/code-quality-and-docs`
+**Branch:** `audit/code-quality-and-docs` (this section: `feature/unified-environment`, branched off it)
 **Scope:** Repository inventory, static-analysis sweep, and correctness audit against
 *"A Framework for Benchmarking Traffic Signal Control Robustness under Incidents"*
 (submitted to European Transport Research Review; arXiv:2506.13836).
@@ -16,6 +16,121 @@ is cited as validating this code.
 Status legend: ✅ Fixed · 🚩 Flagged for human review · ⚪ Not an issue · ❓ Cannot verify
 
 ---
+
+## Environment unification (`feature/unified-environment`)
+
+`base_env.py::BaseEnv` and `incident_env.py::IncidentEnv` were merged into a single class,
+`trex_env.py::TrexEnv`, with incidents controlled by one constructor parameter
+(`incident_config: IncidentConfig | None`, `TREX_comp/config/incident_config.py`). `main.py`
+keys this off the existing `--strategy` flag (1→`None`/off, 2→`IncidentConfig(level=2)`/on)
+rather than adding a second toggle. `BaseEnv`/`IncidentEnv` remain as thin, deprecated
+subclasses of `TrexEnv` for backward compatibility (emit `DeprecationWarning`, otherwise
+fully functional — verified live).
+
+**Correctness requirement (incidents off ⇒ subsystem not executed, not neutered):**
+`TrexEnv.__init__`/`reset()`/`step_sim()` all gate every `Initializer`/`Deployment`
+call behind `if self.enable_incidents:` — when `incident_config=None`, `Initializer` is
+never constructed for the lifetime of the environment, so it draws zero values from the
+global `numpy` RNG (verified: `Initializer.__init__`'s `np.random.randint()` for
+`self.random_seed`, and `Initializer.random()`'s `np.random.seed()` reseed, both only ever
+execute inside `_initialize_incidents`, which itself only runs when
+`self.enable_incidents`). This was true almost by construction once the gating was added
+correctly — no RNG-shielding logic had to be invented separately from "don't call the
+function."
+
+### Regression test result (mandatory, not assumed)
+
+`tests/test_env_unification.py` runs the pre-refactor `BaseEnv`/`IncidentEnv` (frozen
+snapshots in `tests/reference_impl/`, taken immediately before this refactor) and the new
+`TrexEnv` side by side on `ingolstadt7`, same fixed seed, same 3-step episode, and diffs the
+actual output files (`metrics_1.csv`, `tripinfo_1.xml`). Actual pytest output:
+
+```
+collected 3 items
+
+tests/test_env_unification.py::test_base_scenario_matches_pre_merge_baseenv PASSED
+tests/test_env_unification.py::test_incident_scenario_matches_pre_merge_incidentenv PASSED
+tests/test_env_unification.py::test_grid4x4_base_scenario_works_after_route_path_fix PASSED
+
+3 passed in 0.43s
+```
+
+- **Incidents-on comparison**: byte-for-byte identical `metrics_1.csv` and identical
+  per-vehicle `(id, duration, waitingTime, timeLoss)` in `tripinfo_1.xml` between pre-merge
+  `IncidentEnv` and `TrexEnv(incident_config=IncidentConfig(level=2))`. No normalization
+  needed.
+- **Incidents-off comparison**: identical `tripinfo_1.xml`; `metrics_1.csv` identical
+  *after* normalizing one known, intentional formatting difference (see below) — every
+  field value is still asserted equal, only a stray trailing `", "` per line is stripped
+  before comparing.
+- **Third test**: not a comparison (there's no working "old" baseline on `grid4x4` — see
+  below) — it verifies `TrexEnv(incident_config=None)` now runs successfully on `grid4x4`,
+  which pre-merge `BaseEnv` could not do at all.
+
+### Edge cases discovered while diffing the two originals
+
+Diffing `base_env.py` against `incident_env.py` line-by-line (not just skimming) surfaced
+several real behavioral differences beyond the incident subsystem itself. Two were
+unambiguous bugs, fixed as part of the merge (not silently preserved); the rest were
+intentionally preserved per-mode in `TrexEnv` rather than converged, specifically so
+enabling/disabling incidents doesn't silently change anything else about the simulation:
+
+1. **Fixed — route-file path construction disagreed, and `BaseEnv`'s was broken.**
+   Pre-merge `BaseEnv` built route-based `-r` paths as `self.route + '_N.rou.xml'` (a flat
+   file-prefix convention); pre-merge `IncidentEnv` and `main.py`'s own decompress-check
+   both used `os.path.join(self.route, ...)` (a subdirectory convention). These can't both
+   be right for the same `route` config value and the same on-disk layout. Confirmed live:
+   with `grid4x4.zip` decompressed the way `main.py`'s precondition check and the README
+   expect (`environments/grid4x4/grid4x4/*.rou.xml`), pre-merge `BaseEnv` crashed with
+   `TraCIException: The route file '.../grid4x4_1.rou.xml' is not accessible` — it was
+   looking one directory up from where the files actually are. This means **`--strategy 1`
+   on `grid4x4`/`arterial4x4` did not work at all** before this refactor, independent of
+   anything else audited so far — a previously-undiscovered bug because earlier smoke tests
+   only exercised `--strategy 1` on `.sumocfg`-based networks (Cologne/Ingolstadt), never on
+   the two route-based ones. `TrexEnv` uses the subdirectory convention for both modes
+   (verified: `test_grid4x4_base_scenario_works_after_route_path_fix` now runs a full
+   episode there with incidents off).
+2. **Fixed (in the sense of "unified, not preserved") — `save_metrics` CSV formatting.**
+   Pre-merge `BaseEnv.save_metrics` built each line as
+   `str(value) + ', '` per field including the last, leaving a stray trailing `", "` before
+   the newline (a manual-concatenation artifact); pre-merge `IncidentEnv.save_metrics` used
+   `', '.join(...)`, with no trailing separator. Same data, one cosmetic byte difference.
+   `TrexEnv` unifies both modes onto the cleaner `', '.join(...)` format — the alternative
+   (keeping two different `metrics_*.csv` formats depending on whether incidents are
+   enabled) would work against the point of unifying the environments in the first place.
+   Not expected to affect any downstream consumer: `readCSV.py`'s parser splits fields on
+   `'}'`/`':'`, not on trailing whitespace.
+3. **Preserved, not converged — additional-file loading.** Pre-merge `BaseEnv` never passed
+   `-a`/`--additional-files` (so the network's `.add.xml` vType overrides, e.g. `CAV1`/
+   `CAV3`/`IC`/`CAV4`, were never loaded in the base scenario); pre-merge `IncidentEnv`
+   always did. `TrexEnv` keeps this exactly per-mode (`self.additional` is only resolved
+   and only passed to SUMO when `enable_incidents`), since always loading it in the "off"
+   mode would be a genuine behavioral change to base-scenario vehicle dynamics, not just a
+   cosmetic one.
+4. **Preserved, not converged — the global `--time-to-teleport` flag.** Pre-merge `BaseEnv`
+   unconditionally passed `--time-to-teleport -1` (global teleport disabled for every
+   vehicle); pre-merge `IncidentEnv` did not (superseded by the per-vehicle `CAV4` teleport
+   exemption mechanism added earlier in this audit, which only makes sense when incidents
+   exist to queue vehicles behind). `TrexEnv._seed_and_teleport_args()` keeps this
+   conditional on `enable_incidents` for the same reason as item 3 — this materially affects
+   simulation dynamics (whether gridlocked vehicles ever get teleported away), not just log
+   formatting.
+5. **Preserved (functionally equivalent either way) — phase-string filtering.** Pre-merge
+   `BaseEnv` checked `"y" not in p.state` (no `.lower()`); pre-merge `IncidentEnv` checked
+   `"y" not in p.state.lower()`. SUMO phase-state strings only ever use lowercase `y`/`g` and
+   uppercase `G`/`R` in practice, so these are equivalent for real output — `TrexEnv` uses
+   the more defensive `.lower()` form for both modes, and the regression test's identical
+   `metrics_1.csv`/`tripinfo_1.xml` confirms this didn't change phase/action counts for the
+   networks tested.
+6. **Not functionally relevant** — the two originals built the *initial* (pre-`reset()`)
+   TraCI connection label in slightly different string formats (unused after the first few
+   lines of `__init__`, before both renamed it to the identical final `connection_name`
+   format anyway), and created the results directory via raw string concatenation
+   (`BaseEnv`) vs. `os.path.join` (`IncidentEnv`) — functionally identical given `main.py`
+   always passes a `log_dir` already ending in `os.sep`, but the concatenation version is
+   fragile to that assumption (confirmed while writing the regression test: passing a
+   `log_dir` *without* a trailing separator breaks pre-merge `BaseEnv`'s directory creation
+   silently). `TrexEnv` always uses `os.path.join`.
 
 ## Needs owner decision (round 2)
 

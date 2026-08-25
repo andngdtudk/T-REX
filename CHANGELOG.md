@@ -6,6 +6,47 @@ Changes made on the `audit/code-quality-and-docs` branch, grouped by audit phase
 reason). Nothing in the scientific formulas — metric definitions, ICM/SSD equations,
 incident sampling distributions, RL reward/observation functions — was altered.
 
+## Environment unification (`feature/unified-environment`, branched off `audit/code-quality-and-docs`)
+
+Merged `base_env.py::BaseEnv` and `incident_env.py::IncidentEnv` — two separate,
+drifting implementations of largely the same Gym environment — into one class,
+`trex_env.py::TrexEnv`, with incidents toggled by a single `incident_config` parameter
+(`None` = off, `IncidentConfig(...)` = on; `TREX_comp/config/incident_config.py`).
+`main.py` now constructs `TrexEnv` unconditionally, selecting `incident_config` from the
+existing `--strategy` flag (1→off, 2→on) — no new CLI flag added. `base_env.py`/
+`incident_env.py` remain as thin, `DeprecationWarning`-emitting subclasses of `TrexEnv` for
+anyone importing them directly; both verified live to still work end-to-end.
+
+**Correctness verified, not assumed**: when incidents are disabled, `Initializer`/
+`Deployment` are never constructed — confirmed by code inspection (every call site is
+gated behind `if self.enable_incidents:`) and by the mandatory regression test below
+showing zero divergence in output versus the pre-merge `BaseEnv`, which never touched the
+incident subsystem either.
+
+**Mandatory regression test** (`tests/test_env_unification.py`, requires SUMO, 3/3 passing
+— see `AUDIT_REPORT.md` for the full pytest output and per-item discussion): runs the
+frozen pre-merge `BaseEnv`/`IncidentEnv` (`tests/reference_impl/`) against the new
+`TrexEnv` on `ingolstadt7`, same seed, same short episode, and diffs `metrics_1.csv` +
+`tripinfo_1.xml`. Incidents-on: byte-identical, no normalization. Incidents-off: identical
+after normalizing one known, documented, intentional cosmetic difference (see below) — not
+a source of silent divergence.
+
+**Bug found and fixed while diffing the two originals** (not preserved): pre-merge
+`BaseEnv`'s route-file path construction (`self.route + '_N.rou.xml'`) disagreed with
+pre-merge `IncidentEnv`'s and `main.py`'s own (`os.path.join(self.route, ...)`) — confirmed
+live that pre-merge `BaseEnv` could not run `--strategy 1` on `grid4x4`/`arterial4x4` at all
+given the documented decompression layout (`TraCIException: route file ... not accessible`).
+This went undiscovered until now because no prior smoke test exercised `--strategy 1` on a
+route-based network. `TrexEnv` uses the working (subdirectory) convention for both modes.
+
+**Other edge cases found and intentionally handled** (full detail in `AUDIT_REPORT.md`):
+`save_metrics`'s CSV formatting differed by one trailing-comma byte between the two
+originals (unified onto the cleaner format); additional-file loading and the global
+`--time-to-teleport` flag genuinely differ by design between incidents-on/off and are kept
+that way, not converged; phase-string filtering and results-directory path construction
+differed cosmetically between the originals with no observed effect (confirmed by the
+regression test), and were unified for cleanliness.
+
 ## Round 2 — follow-up to round 1's flagged items
 
 Round 1 flagged several items rather than guessing; round 2 resolves the ones that had a
