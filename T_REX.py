@@ -36,7 +36,12 @@ class Initializer():
         self.slow_zone = 50
         self.lc_zone = 20
         self.lc_prob_zone = 70 #170
-        self.slow_zone_speed = 1.39 # 13.8 is 50 km/h should work for highway situations.
+        # 5 mph = 2.2352 m/s (~8.05 km/h) -- manuscript Section 2.4.2: "a conservative
+        # reduced speed of 5 mph (approximately 8 km/h)." Confirmed against the manuscript
+        # text directly by the repo owner; replaces an uncommitted WIP edit (1.39 m/s) found
+        # at the start of this audit whose own comment ("13.8 is 50 km/h") didn't match the
+        # value it was attached to either -- see AUDIT_REPORT.md.
+        self.slow_zone_speed = 2.2352  # m/s, exact 5 mph conversion (5 * 1609.344 / 3600)
 
         self.run_num = run_num
         self.is_incident = False
@@ -258,9 +263,15 @@ class Initializer():
 
     def random_time(self):
         '''
-        Randomly select starting time of incident
+        Randomly select starting time of incident.
+
+        t_start ~ U(t_warmup, t_end - 1200), per manuscript Section 2.3 -- the 1200s
+        buffer leaves room for a long incident (see random_duration) to run its full
+        course within the episode. Confirmed against the manuscript text directly by
+        the repo owner (previously flagged as a code-vs-brief discrepancy at
+        `end_time - 500`; see AUDIT_REPORT.md).
         '''
-        self.start_time = np.rint(np.random.uniform(self.warm_up_time, self.end_time - 500)).astype(int)
+        self.start_time = np.rint(np.random.uniform(self.warm_up_time, self.end_time - 1200)).astype(int)
         self.start_step = self.start_time
         return 
     

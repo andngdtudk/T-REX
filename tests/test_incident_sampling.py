@@ -8,11 +8,8 @@ and set only the attributes each sampling method actually reads, then
 monkeypatch the `traci` calls those methods make (getLaneNumber/getLength)
 rather than spinning up SUMO.
 
-Note: random_time()'s upper bound is checked against the CURRENT
-implementation (`end_time - 500`), not the paper's stated `end_time - 1200`
-(see AUDIT_REPORT.md Section 2.4) -- that mismatch is flagged for human
-review, not silently changed, so this test intentionally documents the
-as-implemented behavior rather than the as-published one.
+random_time()'s upper bound is `end_time - 1200`, confirmed against the manuscript
+text directly by the repo owner (round 5); see AUDIT_REPORT.md.
 """
 from unittest.mock import patch
 
@@ -42,10 +39,10 @@ def test_random_pos_within_paper_bounds(initializer):
             assert 10 <= initializer.pos <= edge_length - 10
 
 
-def test_random_time_within_implemented_bounds(initializer):
+def test_random_time_within_paper_bounds(initializer):
     for _ in range(200):
         initializer.random_time()
-        assert initializer.warm_up_time <= initializer.start_time <= initializer.end_time - 500
+        assert initializer.warm_up_time <= initializer.start_time <= initializer.end_time - 1200
         assert initializer.start_step == initializer.start_time
 
 

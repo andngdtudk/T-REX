@@ -4,8 +4,11 @@ T_REX.py::Deployment.calculate_ssd implements
     SSD = v * t_perception_reaction + v^2 / (2 * a_deceleration)
 with t=2.5s, a=3.4 m/s^2 (Section 2.4.2 / Appendix B of the T-REX paper).
 """
+import inspect
 import math
+import re
 
+import T_REX
 from T_REX import Deployment
 
 
@@ -31,3 +34,14 @@ def test_ssd_increases_with_speed():
     ssds = [Deployment.calculate_ssd(v) for v in speeds]
     assert ssds == sorted(ssds)
     assert len(set(ssds)) == len(ssds)  # strictly increasing, not just non-decreasing
+
+
+def test_slow_zone_speed_matches_paper_5mph():
+    # Initializer.slow_zone_speed is set inline in __init__ (which needs a live SUMO
+    # connection to construct fully), so this reads the source directly rather than
+    # instantiating -- manuscript Section 2.4.2: "a conservative reduced speed of
+    # 5 mph (approximately 8 km/h)." 5 mph = 5 * 1609.344 / 3600 = 2.2352 m/s exactly.
+    source = inspect.getsource(T_REX.Initializer.__init__)
+    match = re.search(r"self\.slow_zone_speed\s*=\s*([\d.]+)", source)
+    assert match, "could not find self.slow_zone_speed assignment in Initializer.__init__"
+    assert math.isclose(float(match.group(1)), 2.2352, rel_tol=1e-9)
