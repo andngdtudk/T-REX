@@ -12,9 +12,9 @@ from TREX_comp.config.agent_config import agent_configs
 from TREX_comp.config.map_config import map_configs
 from TREX_comp.config.mdp_config import mdp_configs
 from TREX_comp.config.hyperparams import resolve_learning_rate
+from TREX_comp.config.incident_config import DEFAULT_INCIDENTS, NO_INCIDENTS
 
-from incident_env import IncidentEnv
-from base_env import BaseEnv
+from trex_env import TrexEnv
 
 logger = logging.getLogger(__name__)
 
@@ -123,8 +123,11 @@ def run_trial(args, trial):
     if args.map in {'grid4x4', 'arterial4x4'} and not os.path.exists(route):
         raise EnvironmentError("Please decompress the traffic flow files for the selected map.")
 
-    env_class = BaseEnv if args.strategy == 1 else IncidentEnv
-    env = env_class(
+    # --strategy is the single incidents on/off toggle (1 = base/off, 2 = incident/on;
+    # 3 is rejected above before this point is reached). Both modes construct the same
+    # TrexEnv class -- see trex_env.py.
+    incident_config = DEFAULT_INCIDENTS if args.strategy == 2 else NO_INCIDENTS
+    env = TrexEnv(
         run_name=f"{agt_config['agent'].__name__}-tr{trial}",
         map_name=args.map,
         net=os.path.join(args.pwd, map_config['net']),
@@ -142,7 +145,7 @@ def run_trial(args, trial):
         libsumo=args.libsumo,
         warmup=map_config['warmup'],
         run=args.seps,
-        level=2 if args.strategy == 2 else None,
+        incident_config=incident_config,
         sumo_seed=None if args.no_seed_sumo else args.seed,
     )
 
