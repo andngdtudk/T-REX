@@ -310,7 +310,15 @@ original WIP baseline committed at the very start, `5ad043ab6`). **Origin: not t
 Round 3 found these 5 files' `IC` lines already modified, uncommitted, in the working tree
 at the start of that round — nobody in this audit wrote that diff; it was folded into round
 3's commit only because it was sitting in the same files being edited for `CAV4`, not because
-it was verified or authored here. See the "Needs owner decision" entry below.
+it was verified or authored here.
+
+> **Update (round 6):** confirmed intentional by the repo owner — part of the
+> teleport-exemption feature (the same mechanism `CAV4` implements: neither the incident's
+> blocking dummy vehicle itself, typed `IC`, nor a genuinely-queued regular vehicle, typed
+> `CAV4`, should be silently removed by SUMO's global teleport timeout while an incident is
+> active). No longer listed under "Needs owner decision" — the commit that originally
+> flagged it as unconfirmed (`d9385df27`) is not rewritten (no history rewrites, per ground
+> rules); this note supersedes that flag with the confirmed status instead.
 
 ### 4.4 Fixed: `Initializer.random_pos()` could return a negative position
 
@@ -359,13 +367,25 @@ above) — no longer open:
   the manuscript's own stated reasoning (B5, Section 2.3) — the threshold itself was never
   in question, only whether it matched the paper's rationale; it does.
 
+**Resolved in round 6** — the two repo-policy items settled by direct owner decision:
+- ~~Whether to keep, regenerate, or remove `arterial4x4`/`arterial5x5`~~ → **decision:
+  keep, tracked as-is.** Confirmed unchanged by round 4's `.gitignore` fix
+  (`git ls-files environments/arterial4x4/ | wc -l` → `2806`, matching round 4's original
+  finding exactly; `environments/arterial5x5/` → `0`, confirmed still empty/no data). Kept
+  despite being confirmed unused by the paper's published experiments (manuscript Section
+  3.1, added as evidence in round 5) — presumably for extensibility or other users'
+  benefit; the repo owner's call to make, and it's been made. README's "Supported networks"
+  section notes both networks are retained but weren't part of the published results.
+- ~~The uncommitted `IC` vType `timeToTeleport="-1"` edits~~ → **confirmed intentional**,
+  part of the teleport-exemption feature (round 6). The commit that originally flagged this
+  as "origin unconfirmed" (`d9385df27`, round 3) is not rewritten — per ground rules, no
+  history rewrites — this entry now records the superseding confirmed status instead.
+
 **Still open**, waiting on the repo owner:
 
 | # | Item | File(s) | Since |
 |---|---|---|---|
-| 1 | Whether to keep, regenerate, or remove `arterial4x4`/`arterial5x5`. **New evidence this round**: manuscript Section 3.1 confirms the paper's experiments only use Grid4x4 + Cologne Corridor/Region + Ingolstadt Corridor/Region — these two networks are confirmed unused by the published results. That doesn't by itself settle keep vs. regenerate vs. remove (1.3GB+ of committed route files either way); still the repo owner's call. | `environments/arterial4x4/`, `TREX_comp/config/map_config.py` | round 1/2, evidence added round 5 |
-| 2 | The uncommitted `IC` vType `timeToTeleport="-1"` edits (§4.3) — origin/intent not confirmed by anyone in this audit; already committed (`d9385df27`) alongside round 3's `CAV4` work because they were in the same files, not because they were reviewed. No manuscript connection at all (unlike everything else in this table) — purely an intent-confirmation question. | `environments/{grid4x4,arterial4x4,cologne3,cologne8,ingolstadt7,cologne1,ingolstadt1}/*.add.xml` | round 3, isolated round 4 |
-| 3 | Round 2's other 🚩-flagged items (beyond the CSV finding, which round 3 re-verified, and B1-B5 above) were never re-verified against a live run — no specific bug identified, just an open trust gap worth a future pass, in the same spirit as round 5 Part A's re-verification of round 1's claims. | (any remaining round 2 flagged items not covered above) | round 4, unchanged round 5 |
+| 1 | Round 2's other 🚩-flagged items (beyond the CSV finding, which round 3 re-verified, and B1-B5 above) were never re-verified against a live run — no specific bug identified, just an open trust gap worth a future pass, in the same spirit as round 5 Part A's re-verification of round 1's claims. | (any remaining round 2 flagged items not covered above) | round 4, unchanged rounds 5-6 |
 
 ## Round 3 — validation, then completion of skipped items
 
