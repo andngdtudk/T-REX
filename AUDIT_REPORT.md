@@ -17,6 +17,67 @@ Status legend: ✅ Fixed · 🚩 Flagged for human review · ⚪ Not an issue ·
 
 ---
 
+## Round 7 — targeted verification: does `SharedEpsGreedy` reproduce pfrl's exact epsilon schedule?
+
+Round 6 (§6.1 below) swapped IDQN's explorer from pfrl's own `LinearDecayEpsilonGreedy`
+to the repo's `SharedEpsGreedy`, justified by matching call signatures against
+`pfrl.agents.DQN.batch_act`. That proves interface compatibility — it does not by itself
+prove the two produce the same epsilon value at a given step `t`. Round 7 checked this
+directly rather than assuming it follows from signature compatibility.
+
+**Formula comparison, by reading the code**: `SharedEpsGreedy(explorers.LinearDecayEpsilonGreedy)`
+(`TREX_comp/agents/pfrl_dqn.py`) overrides only `__init__` (adds the `rng=` kwarg) and
+`select_action` (uses `self.rng.random()`/`self.rng.integers()` instead of the module-level
+`np.random.rand()`, and adds `num_acts` handling for MPLight's batched path). It does
+**not** override `compute_epsilon` — `self.compute_epsilon(t)` inside its `select_action`
+resolves via Python's MRO to the exact same method inherited from pfrl's
+`LinearDecayEpsilonGreedy`. Pinned as an explicit regression check:
+`SharedEpsGreedy.compute_epsilon is explorers.LinearDecayEpsilonGreedy.compute_epsilon`
+(`tests/test_explorer_epsilon_parity.py::test_shared_eps_greedy_does_not_override_compute_epsilon`).
+This is a stronger guarantee than "matches numerically" — it's the same function object
+either way, so no independent reimplementation could have drifted.
+
+**Construction parameters, confirmed via `git show ba4f823ce`**: for IDQN's exact path
+(`num_agents=0`), before the swap: `explorers.LinearDecayEpsilonGreedy(config['EPS_START'],
+config['EPS_END'], config['steps'], lambda: self.rng.integers(act_space))`. After:
+`decay_steps = config['steps']` (the `num_agents=0` branch of the new ternary),
+`SharedEpsGreedy(config['EPS_START'], config['EPS_END'], decay_steps, lambda:
+self.rng.integers(act_space), rng=self.rng)`. `start_epsilon`, `end_epsilon`, and
+`decay_steps` are unchanged — the only addition is the new `rng=` kwarg (a capability
+addition, not a formula change), and only the class name differs.
+
+**Empirical check, not just formula-by-eye** (`tests/test_explorer_epsilon_parity.py`,
+new, 11/11 passing): instantiated both classes with IDQN's real `EPS_START=1.0`,
+`EPS_END=0.0` (`TREX_comp/config/agent_config.py`) and a realistic `decay_steps=28800`
+(`int(100*0.8)*360`, matching `main.py`'s derivation for `--eps 100` on a 3600s/10s-step
+network), then compared `compute_epsilon(t)` directly (bypassing the stochastic coin flip
+— comparing the deterministic epsilon value, not the explore/exploit decision) across the
+decay ramp, the exact boundary, and past it:
+
+| `t` | pfrl `LinearDecayEpsilonGreedy` | repo `SharedEpsGreedy` | result |
+|---|---|---|---|
+| 0 | 1.000000 | 1.000000 | MATCH |
+| 1 | 0.999965 | 0.999965 | MATCH |
+| 1,000 | 0.965278 | 0.965278 | MATCH |
+| 7,200 (25%) | 0.750000 | 0.750000 | MATCH |
+| 14,400 (50%) | 0.500000 | 0.500000 | MATCH |
+| 21,600 (75%) | 0.250000 | 0.250000 | MATCH |
+| 28,799 (decay_steps−1) | 0.000035 | 0.000035 | MATCH |
+| 28,800 (== decay_steps) | 0.000000 | 0.000000 | MATCH |
+| 28,801 (decay_steps+1) | 0.000000 | 0.000000 | MATCH |
+| 288,000 (10× decay_steps) | 0.000000 | 0.000000 | MATCH |
+
+**Verdict: MATCH at every tested point**, including the exact `t == decay_steps` boundary
+and the post-decay floor. Combined with the construction-parameter and shared-method-object
+findings above, round 6's IDQN explorer swap is confirmed numerically identical to pfrl's
+original behavior, not just structurally compatible with it. No action needed; nothing to
+present to the repo owner as a decision — this closes 6.1 with direct evidence rather than
+reasoning from signature compatibility alone.
+
+Full suite: 73 collected (71 passed, 2 skipped — the 2 skips are pre-existing SUMO-optional
+guards, unrelated to this round), up from round 6's 62 (the 11 new
+`test_explorer_epsilon_parity.py` cases account for the difference).
+
 ## Round 6 — closing the pfrl RNG-scope caveat, `libsumo` pin, README refresh
 
 ### 6.1 pfrl RNG-independence scope — verified empirically, then actually closed (not worked around)
