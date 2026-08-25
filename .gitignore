@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# SUMO / T-REX run artifacts
+results/
+results_*/
+*.tripinfo.xml
+tripinfo_*.xml
+metrics_*.csv
+*-seed_ic1.txt
+*-seed_ic2.txt
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Type checkers / test caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage

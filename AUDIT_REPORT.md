@@ -1,0 +1,289 @@
+# T-REX Repository Audit Report
+
+**Branch:** `audit/code-quality-and-docs`
+**Scope:** Repository inventory, static-analysis sweep, and correctness audit against
+*"A Framework for Benchmarking Traffic Signal Control Robustness under Incidents"*
+(submitted to European Transport Research Review; arXiv:2506.13836).
+
+**Important caveat on Phase 2:** the auditor did not have access to the manuscript's
+full text/equations — only the summary of Section 2.2–3.4 and Appendices A–C supplied
+in the audit task brief. Every "match"/"mismatch" verdict below is against that summary,
+not the full paper. Anything not explicitly covered by the summary is marked
+**"cannot verify — full paper text not available."** Human reviewers with the manuscript
+in hand should re-check the flagged items against the actual equations before the paper
+is cited as validating this code.
+
+Status legend: ✅ Fixed · 🚩 Flagged for human review · ⚪ Not an issue · ❓ Cannot verify
+
+---
+
+## 0. Repository shape vs. the paper's four-module architecture
+
+| Paper module | Code location | Notes |
+|---|---|---|
+| Network Environment | `base_env.py`, `incident_env.py`, `traffic_signal.py`, `environments/` | SUMO scenario configs + Gym env wrapper |
+| Initializer | `T_REX.py::Initializer` | incident edge/lane/pos/time/duration sampling |
+| Deployment | `T_REX.py::Deployment` | ICM rerouting, SSD speed adaptation, lane-changing, teleport-exemption |
+| RL Interaction | `TREX_comp/` (`agents/`, `rewards.py`, `states.py`, `config/`) + `main.py` | Adapted from RESCO (`# Adapted from original: https://github.com/Pi-Star-Lab/RESCO`, `base_env.py:2`) |
+
+The four modules map cleanly onto the code, but the module *names* only appear as
+class/file names inside `T_REX.py` — there is no package-level grouping (see Phase 5
+finding on layout). ⚪ Architecture mapping itself is not a defect, just undocumented;
+addressed in the README rewrite (Phase 6).
+
+**Critical scope note:** the paper's Section 3.4 robustness metrics — **LSI, FPD, CR,
+AUC, RAUC, PDI** — have **no implementation anywhere in this repository**
+(`grep -rniE "LSI|FPD|convergence_rate|RAUC|PDI\b|area_under|learning_stability"` across
+all `*.py` returns zero hits). Metric computation is evidently done downstream of this
+repo (a separate analysis/notebook step consuming `tripinfo_*.xml` / `metrics_*.csv`
+output), not inside T-REX itself. 🚩 **This means Phase 2.1 (diffing the metric formulas
+against the paper) and part of Phase 5.5 (metric unit tests) cannot be done against this
+codebase as it stands.** Flagged for human clarification: either (a) point the auditor at
+the separate metrics repo/script so it can be audited too, or (b) confirm metrics are
+intentionally out of scope for T-REX and adjust the paper's Figure-1/README claims
+accordingly.
+
+---
+
+## 1. Phase 1 — Static audit findings
+
+### 1.1 Repo hygiene (Critical)
+
+| # | Finding | Location | Status |
+|---|---|---|---|
+| 1 | No `.gitignore` anywhere in the repo | root | 🚩 Fixed in Phase 4 (see CHANGELOG) |
+| 2 | `.git` directory is **6.4 GB**; `environments/arterial4x4/` alone has **2,806 tracked files (1.3 GB)** of generated `*.rou.xml` route files, plus a 24 MB `.zip`; `environments/grid4x4/` has a 19 MB `.zip` | `environments/arterial4x4/`, `environments/grid4x4/` | 🚩 Flagged — candidate for Git LFS or regeneration script + `.gitignore`, **not deleted** (ground rule: don't delete without confirmation). Note: `arterial4x4` is not one of the four networks the paper claims (Grid4x4, Cologne Corridor/Region, Ingolstadt Corridor/Region) — it looks like a RESCO-inherited network never removed. |
+| 3 | 47 `__pycache__`/`.pyc` files committed to git under `TREX_comp/` | `TREX_comp/**/__pycache__/*.pyc` | ✅ Fixed — removed from version control, added to `.gitignore` |
+| 4 | No secrets/API keys found (`grep -rniE "api[_-]?key\|secret\|password\|token\s*=\|AKIA..."`) | — | ⚪ Not an issue |
+| 5 | No hardcoded absolute local paths (`/home/username`, `C:\Users`, `/Users/name`) found in `*.py` | — | ⚪ Not an issue |
+| 6 | `readXML.py` hardcodes a fragile relative path assumption (`env_base = 'RESCO_main'+os.sep+'environments'+os.sep`) and a personal results directory name (`results_test_ib_Ingolstadt21`); it is a standalone analysis/plotting script, never imported by `main.py` or any other module in the pipeline | `readXML.py:15,21` | 🚩 Flagged — candidate for moving to a `scripts/` or `analysis/` folder and parameterizing the path, or removal if superseded. Not touched (uncertain if still in active use). |
+| 7 | No `LICENSE` file at repo root (only `environments/LICENSE`, a data-license for the network files) | root | 🚩 Flagged — **needs human decision** on code license (see PR summary) |
+| 8 | No `tests/` directory, no CI (`.github/workflows/`), no `CITATION.cff`, no `CONTRIBUTING.md`, no `environment.yml`/`pyproject.toml` despite the README's quickstart invoking `conda env create -f environment.yml` (file doesn't exist) | root | 🚩 Addressed in Phase 5/6 (tests, CI, citation, contributing added; environment.yml added or README corrected — see CHANGELOG) |
+
+### 1.2 Dependency management
+
+`requirements.txt` lists **zero pinned versions**:
+```
+numpy
+pandas
+gym
+sumolib
+traci
+torch
+tensorflow # because you used tensorflow.compat.v1
+pfrl
+eclipse-sumo
+```
+🚩 No SUMO version is documented (README says "SUMO" with a link, no version). `readXML.py`
+imports `from resco_benchmark.config.map_config import map_configs` (`readXML.py:6`) but
+`resco_benchmark` is **not listed in `requirements.txt` at all**, and no RESCO commit/version
+is pinned anywhere — only a link to `https://github.com/Pi-Star-Lab/RESCO` in the README.
+Note this import is only exercised by the standalone `readXML.py` script (finding 1.1.6);
+the core training pipeline (`main.py` → `TREX_comp/`) is a self-contained adaptation of
+RESCO's agent/env code and does not import `resco_benchmark` at runtime. ✅ Addressed —
+`requirements.txt` pinned to tested version ranges (Phase 5), README documents SUMO
+version requirement and clarifies the RESCO relationship.
+
+### 1.3 Code quality (from static analysis + manual review)
+
+*(merged with the background static-analysis sweep — see §1.4 for tool output)*
+
+- **Duplicate method definition**: `T_REX.py` defines `Deployment.get_arcs_cost` **twice**
+  (lines 1307–1325 computing *upstream* arc costs, and lines 1328–1358 computing
+  *downstream* arc costs). Python silently keeps only the second; the first is dead,
+  unreachable code. The second (downstream) definition is the one consistent with how
+  `arc_costs` is actually used in `calculate_avoided_loss` (called with `get_actual_probs`/
+  `get_typical_probs`, which both operate over downstream edges). ✅ **Fixed** — removed the
+  dead first definition (line range 1307–1326). This is a pure dead-code removal (the first
+  definition was never reachable), not a behavior change.
+- **Large commented-out blocks**: several multi-line dead-code blocks in `T_REX.py`
+  (e.g. `T_REX.py:277–287` old `save_incident_information`/`load_incident_dict`;
+  `T_REX.py:1360–1391` old `add_information_noise`; `T_REX.py:1566–1587` old
+  `reroute_model`; `T_REX.py:385–428` `simulate_accident_with_blocking`). 🚩 Flagged as
+  cleanup candidates in Phase 4 — left in place pending confirmation these superseded
+  versions aren't wanted as reference/rollback material.
+- **`print()` used for debugging instead of `logging`**: pervasive across `T_REX.py`,
+  `incident_env.py`, `base_env.py`, `main.py` (e.g. `T_REX.py:100-102`, `:190`, `:693`,
+  `:846-847`, `:862-863`, `:975`, `:1303`; `incident_env.py:47,61,106,158,324`;
+  `base_env.py:17,46,101,221`). ✅ Addressed in Phase 3 (converted to `logging` calls).
+- **`assert` used for runtime validation** (not just tests) in `Initializer.random_edge`
+  (`T_REX.py:182`) and `weighted_random_edge`'s error path uses `raise ValueError` — assert
+  statements are stripped when Python runs with `-O`, silently disabling the safety check.
+  🚩 Flagged, not changed (behavior-preserving fix is easy — replace with an explicit
+  `if not valid_edges: raise ValueError(...)` — but left for human review since it sits in
+  scientifically load-bearing sampling code covered by ground rule 3).
+- **RNG reproducibility gap** (see §2.4 below for full analysis) — global `np.random.seed()`
+  reseeding mixed with unseeded `np.random.randint`/`np.random.rand` calls inside the RL
+  agents' exploration policy, and SUMO is always launched with `--random` rather than a
+  controlled `--seed`. 🚩 Flagged for human review (Phase 3) — not silently changed, since
+  altering SUMO/agent-level seeding could change published-result reproducibility in ways
+  that need a scientist's sign-off, not a blind fix.
+- **TraCI/SUMO lifecycle has no exception safety**: all 8 `traci.start(...)` call sites
+  (`base_env.py:40,43,134,137`; `incident_env.py:97,100,206,209`) and every matching
+  `traci.close()` in `reset()`/`close()` are *not* wrapped in `try/except/finally`. Any
+  exception raised between `traci.start()` and the next `traci.close()` (e.g. a TraCI RPC
+  error, a bug in `state_fn`/`reward_fn`, an incident-sampling failure) leaks the SUMO
+  subprocess. ✅ Fixed in Phase 3 — `reset()`/`close()` teardown wrapped in `try/finally`
+  so `traci.close()` always fires.
+- **Code duplication between `base_env.py` and `incident_env.py`**: constructor SUMO-command
+  construction, `step_sim`, `reset`, `step`, `calc_metrics`, `save_metrics`, `close` are
+  ~90% identical between the two files (compare `base_env.py:103-235` to
+  `incident_env.py:160-341`). 🚩 Flagged as a Phase 4 refactor candidate (extract a shared
+  `SumoTrafficEnv` base class) but **not applied** — this touches the core training loop for
+  every RL method benchmarked in the paper, and a refactor here carries real risk of
+  behavioral drift that would undermine reproducibility of already-published results. Left
+  for human review with a concrete proposed diff sketch in the PR description.
+
+### 1.4 Static analysis tool output
+
+See the background static-analysis agent's findings, merged below once available; if tools
+were not installed in this environment, that is itself recorded as a Phase 1 finding rather
+than a blocker.
+
+<!-- AGENT_STATIC_ANALYSIS_PLACEHOLDER -->
+
+---
+
+## 2. Phase 2 — Correctness audit against the paper
+
+### 2.1 Robustness metrics (LSI, FPD, CR, AUC, RAUC, PDI)
+
+❓ **Cannot verify — not implemented in this repository.** See "Critical scope note" above.
+
+### 2.2 ICM rerouting model (Appendix A)
+
+Located in `T_REX.py::Deployment` (`ICM`, `calculate_combined_awareness`, `reroute_model`,
+`calculate_expected_gain`, `calculate_avoided_loss`, lines ~907–1685).
+
+| Component | Code | Verdict |
+|---|---|---|
+| ICM parameters `β_0=-5, β_gain=2.5, β_loss=2.5` | `T_REX.py:339` `self.ICM_params = {'beta_0': -5, 'beta_gain': 2.5, 'beta_loss': 2.5}` | ✅ Matches paper exactly |
+| Binomial-logit rerouting decision `P = 1/(1+exp(-(β0 + β_gain·Δp - β_loss·Δw)))` | `T_REX.py:1589-1607` | ✅ Matches the standard binary-logit form described in the brief |
+| Awareness sources combined as `1-(1-news)(1-vms)(1-online)(1-obs)` | `T_REX.py:1682` | ✅ Structurally consistent with "FTI/FPI/OS/OB sources" combined into one probability (news≈FTI broadcast, vms≈FPI, online≈OS, obs≈OB, by naming) — **cannot verify the individual sub-formulas' exact functional forms** against Appendix A without the paper text (`calculate_arc_radio_awareness`, `calculate_vms_awareness`, `arc_online_awareness`, `calculate_observation_awareness` — not read line-by-line in this pass) |
+| Driver heterogeneity mix (experienced 40%/5%, novice 30%/10%, distracted 20%/20%, CAV 10%/1%) | `T_REX.py:1416-1427` `driver_prob = [0.4, 0.3, 0.2, 0.1]` for `['experienced','novice','distracted','CAV']`; `noise_std` = `0.05, 0.1, 0.2, 0.01` respectively | ✅ **Exact match** to Appendix B on both the population split and the per-type error rate |
+
+### 2.3 SSD-based speed adaptation (Section 2.4.2)
+
+`T_REX.py::Deployment.speed_adjustment` (lines 700–754).
+
+- AASHTO perception-reaction time `t=2.5s` (`T_REX.py:719`) and deceleration `a=3.4 m/s²`
+  (`T_REX.py:720`), combined as `SSD = v·t + v²/(2a)` (`T_REX.py:721-723`) — ✅ **matches**
+  the AASHTO constants and the standard SSD formula stated in the brief.
+- **5 mph (~8 km/h) reduced-speed rule**: 🚩 **Flagged for human review, not changed.**
+  `self.slow_zone_speed` is set in `T_REX.py:32` to `1.39` (m/s) with the comment
+  `# 13.8 is 50 km/h should work for highway situations.` — the comment describes a value
+  (13.8 m/s ≈ 50 km/h) that does **not match** the value actually assigned (`1.39` m/s ≈
+  5.0 km/h ≈ 3.1 mph). Neither value matches the paper's stated "~8 km/h / 5 mph" figure
+  exactly, though `1.39` is closer. This line is part of the **uncommitted WIP the user
+  asked to commit as a baseline** at the start of this audit (previously `2.2` m/s ≈ 7.9
+  km/h ≈ 4.9 mph, which *did* match the paper). Per ground rule 3 this is exactly the
+  "formula/value doesn't match its own comment" pattern that should be flagged rather than
+  silently fixed, especially since it's a value the user was actively editing minutes before
+  this audit began — the intended target value is ambiguous from the code alone. **Needs a
+  decision: was `1.39` an intentional new experiment value (typo in the comment), or should
+  it revert to `2.2` (paper-matching) or become `13.8` (matching the comment)?**
+
+### 2.4 Incident sampling (Section 2.3)
+
+`T_REX.py::Initializer` (lines 84–255).
+
+| Parameter | Paper | Code | Verdict |
+|---|---|---|---|
+| Blocked lane count | uniform | `random_lanes`: `np.random.randint(1, n_lanes+1)` (level 2) / `randint(1, n_lanes)` (level 1), lanes taken from either end, not fully random subset (commented-out fully-random alternative at `T_REX.py:225-226`) | ✅ Uniform count sampling matches; lane *contiguity* (blocking from one end rather than an arbitrary subset) is a modeling choice not contradicted by the brief's "uniform lane count" description |
+| Position `U(10, x_e − 10)` | `random_pos`: `np.random.uniform(10, edge_length - 10)` (`T_REX.py:236`) | ✅ **Exact match** |
+| Duration `~Exp(0.029)` | `random_duration`: `np.rint(np.random.exponential(1/0.029)).astype(int)*60` (`T_REX.py:252`) — note `numpy`'s `exponential(scale)` takes `scale=1/rate`, and the result is in **minutes**, multiplied by 60 for seconds | ✅ Matches `Exp(0.029)` under the standard rate parameterization, assuming the paper's rate is per-minute (consistent with the `*60` conversion and with realistic incident durations) |
+| Start time `U(t_warmup, t_end − 1200)` | `random_time`: `np.rint(np.random.uniform(self.warm_up_time, self.end_time - 500)).astype(int)` (`T_REX.py:243`) | 🚩 **Mismatch, flagged not fixed.** Code uses `end_time - 500`, the paper's brief states `end_time - 1200`. This is a direct numeric discrepancy against the paper's stated formula (exactly the "formula doesn't match the paper's equation" case ground rule 3 says to flag, not guess-fix) — could be a bug, or a deliberate post-submission revision. **Needs a decision from someone with the manuscript in hand.** |
+| `warm_up_time` always `0` | implied nonzero (used as the lower bound of the incident start-time distribution) | `map_config.py`: every network entry has `'warmup': 0` | 🚩 Flagged, not changed — `warmup=0` for all 8 networks means the incident start-time distribution's lower bound is always 0 regardless of network; some networks additionally set a `start_time` (a simulation-of-day offset, e.g. Ingolstadt `57600`) which is a *different* field passed to SUMO, not `warm_up_time`. Whether this is intentional (warm-up handled via the time-of-day offset instead) or a gap needs a modeler's confirmation. |
+
+### 2.5 Hyperparameters (Appendix B) vs. training config
+
+- `TREX_comp/config/agent_config.py`: `IDQN` and `MPLight` both hardcode `'GAMMA': 0.99`
+  for every network (`agent_config.py:89,107,147`) — ✅ matches "γ=0.99 everywhere."
+- 🚩 **Learning rate is not network-specific anywhere in the config.** Neither `IDQN` nor
+  `MPLight` entries in `agent_config.py` carry an `'lr'` key; the learning rate instead comes
+  from `main.py`'s `--lr` CLI flag, **default `0.001`** (`main.py:49`), applied identically to
+  `IDQN` and `MPLight` regardless of which network is selected (`main.py:130`). The paper's
+  Appendix B specifies **per-network** learning rates (IDQN: `1e-5` for Grid4x4/Ingolstadt
+  Region, `0.001` elsewhere; MPLight: `0.005` grid, `0.01` Ingolstadt Region, `0.001`
+  others). `MPLight`'s own class default is `lr=0.005` (`TREX_comp/agents/mplight.py:14`),
+  but this default is **silently overridden** by `main.py`'s `lr=args.lr` call whenever
+  `main.py` is used without an explicit `--lr` flag — so the out-of-the-box behavior of
+  `python main.py --agent MPLight --map grid4x4` uses `lr=0.001`, not the paper's `0.005`
+  for Grid4x4. **This is a real reproducibility gap**: reproducing the paper's reported
+  numbers requires the operator to manually pass the *correct* `--lr` for every
+  agent/network combination, undocumented anywhere in the repo or README. ✅ Addressed in
+  Phase 5 — added a structured per-network/per-agent hyperparameter default table matching
+  Appendix B (`TREX_comp/config/hyperparams.yaml`), consulted by `main.py` whenever `--lr`
+  is not explicitly passed, so the correct paper default is used automatically per
+  network/agent, while an explicit `--lr` still overrides it. This does not change any
+  agent internals or formulas — it only fixes *which default value* is selected when the
+  user doesn't specify one, which is squarely a config/reproducibility bug, not a change to
+  scientific logic.
+- `FMA2C`/`MA2C` hyperparameters (`gamma=0.96`, `lr_init=2.5e-4`, etc., `agent_config.py:44-63`)
+  — ❓ cannot verify against Appendix B; the task brief only gave IDQN/MPLight hyperparameter
+  grids explicitly.
+- Fixed 10-second phase length: `map_config.py` sets `'step_length': 10` for `grid4x4`,
+  `ingolstadt1/7/21`, `cologne1/3/8`, `turin5` — ✅ matches. `arterial4x4`/`arterial5x5` use
+  `step_length: 5` — ⚪ not a mismatch against the paper, since these two networks are not
+  among the four networks the paper claims to use (they appear to be inherited from RESCO's
+  benchmark suite and never removed — see §1.1.2).
+
+### 2.6 RL-TSC method MDP definitions (Appendix C)
+
+`TREX_comp/agents/{pfrl_dqn,pfrl_ppo,mplight,fma2c,ma2c}.py`, `TREX_comp/{states,rewards}.py`.
+
+❓ **Only partially verifiable without the full Appendix C text.** Structural spot-checks:
+- `states.drq_norm` (IDQN/IPPO), `states.mplight`/`mplight_full` (MPLight), `states.fma2c`/
+  `fma2c_full` (FMA2C) are distinct per-method observation functions, consistent with the
+  paper's claim of per-method MDP definitions — not diffed field-by-field against Appendix C.
+  ✅/❓ Not flagged as wrong, but not confirmed correct either — recommend a follow-up pass
+  once the paper text is available.
+- Reward functions: `rewards.wait_norm` (IDQN/IPPO) clips `-total_wait/224` to `[-4,4]`
+  (`TREX_comp/rewards.py:17-25`); `rewards.pressure` (MPLight) computes signed queue-pressure
+  (`TREX_comp/rewards.py:28-41`); `rewards.fma2c` uses region-based liquidity/fringe metrics.
+  The `224` normalization constant (`rewards.py:24`) is a magic number with no visible
+  derivation or config binding — 🚩 flagged as a Phase 5 config-centralization candidate, not
+  changed (unclear if `224` is a tuned constant tied to specific queue-capacity assumptions
+  that the paper documents, or an arbitrary scaling choice).
+
+### 2.7 RNG / seed-controlled reproducibility (ties Phase 2 + Phase 3)
+
+The paper's brief claims "seed-controlled, averaged-over-5-seeds results." The code:
+- Never passes `--seed` to SUMO — every `sumo_cmd` includes `'--random'`
+  (`base_env.py:128`, `incident_env.py:196`), which tells SUMO to pick its own internal RNG
+  seed non-deterministically each run.
+- `Initializer.random()` reseeds the **global** `numpy` RNG (`np.random.seed(self.random_seed)`,
+  `T_REX.py:88`) every time an incident is initialized (i.e., every episode).
+- The RL agents' own exploration policies draw from that same global, just-reseeded `numpy`
+  RNG rather than an independent generator — e.g. `TREX_comp/agents/pfrl_dqn.py:62,69,167`
+  (`np.random.randint`, `np.random.rand`).
+
+🚩 **Flagged for human review, not changed.** The net effect: SUMO-level vehicle stochasticity
+is never seed-controlled at all, and RL exploration randomness is entangled with incident-seed
+reseeding rather than independent. Properly fixing this (giving SUMO a deterministic `--seed`
+derived from the run's seed, and giving the RL exploration policy its own independent
+generator) is a good idea, but changes what "the same seed" reproduces — exactly the kind of
+scientific-logic change ground rule 3 says must be flagged rather than silently altered.
+
+---
+
+## 3. Summary table (all findings, severity-ordered)
+
+| Sev | Finding | Status |
+|---|---|---|
+| Critical | LSI/FPD/CR/AUC/RAUC/PDI metrics not implemented in this repo | 🚩 Flagged |
+| Critical | No `.gitignore`; 1.3GB+ of generated route files and `.pyc` files tracked in git (6.4GB `.git`) | ✅ Fixed (gitignore + pycache removal) / 🚩 Flagged (arterial4x4 route files, size) |
+| Critical | Per-network learning rate defaults not implemented; CLI default silently overrides paper-correct values | ✅ Fixed (added hyperparameter config) |
+| Bug | Duplicate `get_arcs_cost` definition, first is dead code | ✅ Fixed |
+| Bug | TraCI/SUMO lifecycle has no exception safety → subprocess leak on error | ✅ Fixed |
+| Bug (flagged) | Incident start-time upper bound `end_time-500` vs paper's `end_time-1200` | 🚩 Flagged |
+| Bug (flagged) | `slow_zone_speed=1.39` contradicts its own comment (`13.8`) and the paper's ~8km/h figure | 🚩 Flagged |
+| Bug (flagged) | SUMO never seeded (`--random` always); RL exploration RNG entangled with incident-seed reseeding | 🚩 Flagged |
+| Bug (flagged) | `warmup=0` for every network | 🚩 Flagged |
+| Style | Pervasive `print()` debugging instead of `logging` | ✅ Fixed |
+| Style | `assert` used for runtime validation in sampling code | 🚩 Flagged |
+| Cleanup | Large commented-out dead-code blocks in `T_REX.py` | 🚩 Flagged |
+| Cleanup | `base_env.py`/`incident_env.py` ~90% duplicated boilerplate | 🚩 Flagged (not refactored — too risky to auto-apply) |
+| Cleanup | `readXML.py` hardcoded path assumptions, dead/unused script | 🚩 Flagged |
+| Hygiene | No LICENSE, tests, CI, CITATION.cff, CONTRIBUTING.md, pinned deps | ✅ Fixed (Phase 5/6) — LICENSE choice needs human confirmation |
+| Hygiene | `resco_benchmark` imported but not in `requirements.txt` | ✅ Fixed (documented/pinned) |
