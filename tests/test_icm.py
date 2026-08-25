@@ -12,10 +12,12 @@ noise) is monkeypatched to the identity function so the surrounding math is
 tested deterministically; its own sampling behavior is out of scope here.
 """
 import math
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 
+import T_REX
 from T_REX import Deployment
 
 
@@ -81,3 +83,54 @@ def test_reroute_probability_increases_with_expected_gain(deployment):
     low_gain = deployment.reroute_model([0.5, 0.5], [0.5, 0.5], arc_costs, -5, 2.5, 2.5)
     high_gain = deployment.reroute_model([1.0, 0.0], [0.0, 1.0], arc_costs, -5, 2.5, 2.5)
     assert high_gain > low_gain
+
+
+class _FakeDownstreamEdge:
+    def __init__(self, edge_id):
+        self._id = edge_id
+
+    def getID(self):
+        return self._id
+
+
+class _FakeEdgeWithOutgoing:
+    def __init__(self, outgoing_ids):
+        self._outgoing_ids = outgoing_ids
+
+    def getOutgoing(self):
+        return {_FakeDownstreamEdge(eid): None for eid in self._outgoing_ids}
+
+
+class _FakeNet:
+    def __init__(self, edges):
+        self._edges = edges
+
+    def getEdge(self, edge_id):
+        return self._edges[edge_id]
+
+
+def test_get_arcs_cost_returns_downstream_travel_times(deployment):
+    # T_REX.py used to define Deployment.get_arcs_cost twice -- an earlier
+    # (upstream-arc) version that Python silently discarded, and the surviving
+    # (downstream-arc) version, which is what get_actual_probs/get_typical_probs
+    # (both downstream-based) actually pair with in calculate_avoided_loss. This
+    # directly exercises the surviving definition, not just its callers.
+    deployment.net = _FakeNet({
+        "current_edge": _FakeEdgeWithOutgoing(["down_a", "down_b"]),
+    })
+    travel_times = {"down_a": 12.5, "down_b": 7.25}
+
+    with patch.object(T_REX.traci.vehicle, "getRoadID", return_value="current_edge"), \
+         patch.object(T_REX.traci.edge, "getTraveltime", side_effect=lambda e: travel_times[e]):
+        costs = deployment.get_arcs_cost("veh0")
+
+    assert costs == [12.5, 7.25]
+    assert all(c == c for c in costs)  # not NaN
+    assert all(c >= 0 for c in costs)
+
+
+def test_get_arcs_cost_empty_when_no_downstream_edges(deployment):
+    deployment.net = _FakeNet({"dead_end": _FakeEdgeWithOutgoing([])})
+
+    with patch.object(T_REX.traci.vehicle, "getRoadID", return_value="dead_end"):
+        assert deployment.get_arcs_cost("veh0") == []

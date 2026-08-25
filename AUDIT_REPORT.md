@@ -17,6 +17,111 @@ Status legend: ✅ Fixed · 🚩 Flagged for human review · ⚪ Not an issue ·
 
 ---
 
+## Round 5 — Part A: closing the round-1 trust gap (live re-verification)
+
+Round 1 marked several items "✅ Fixed" based on the code change being made, not on a live
+re-run confirming the fix actually works at runtime — the same class of claim that turned
+out stale for the CSV finding (§4.2). Each item below was re-run live this round; results
+and evidence follow, not restated claims. All six: **PASS**.
+
+### A.1 `print()` → `logging` conversion — PASS
+
+`ingolstadt7`, `--strategy 2`, one episode, with vs. without `--verbose`:
+```
+no-verbose DEBUG count: 0    no-verbose INFO count: 15
+verbose    DEBUG count: 282  verbose    INFO count: 15
+```
+`--verbose` genuinely gates the logging level at runtime (0 → 282 DEBUG lines appearing,
+identical INFO-level output either way) — not merely that `print()` calls were textually
+replaced.
+
+### A.2 TraCI/SUMO exception safety (`try/finally`) — PASS
+
+Live check (not part of the permanent suite, see below for that): constructed `TrexEnv`
+with `libsumo=False` (so a real `sumo` OS subprocess is spawned, making an orphan-process
+check meaningful) and a `reward_fn` that raises on its 2nd call, wrapped in the same
+`try/.../finally: env.close()` pattern `main.py` uses:
+```
+PIDs before: []
+PIDs after construction: []
+PIDs after reset: ['397827 .../sumo/bin/sumo -c .../ingolstadt7.sumocfg ... --remote-port 36975']
+Exception raised as expected: deliberate mid-episode failure for exception-safety test
+PIDs after close(): []
+RESULT: PASS -- no orphan process
+```
+A real subprocess is confirmed running mid-episode, then confirmed **gone** after `close()`
+runs from the `finally` block, despite the exception. Permanent regression test added:
+`tests/test_exception_safety.py` (uses `libsumo=True` for CI speed; checks that `close()`
+itself doesn't raise a second error while unwinding, and that a second, independent env can
+be constructed afterward — proving libsumo's single global simulation slot was actually
+released, the fast-mode proxy for "no orphan state left behind").
+
+### A.3 `MPLight` `lr` bug fix — PASS
+
+Constructed real `MPLight` agents (PyTorch, no SUMO needed) at several learning rates and
+read the actual optimizer state, not the source line:
+```
+requested lr=0.005  ->  optimizer lr=0.005  ->  MATCH
+requested lr=0.001  ->  optimizer lr=0.001  ->  MATCH
+requested lr=0.05   ->  optimizer lr=0.05   ->  MATCH
+```
+Permanent test: `tests/test_mplight_lr.py` (5 tests, parametrized over 4 additional lr
+values including a very small `1e-5`).
+
+### A.4 `run_episode` `obs` fix / `--repeat` seed replay — PASS
+
+The real test of this fix, run via the actual CLI end to end: trained `MAXPRESSURE` on
+`ingolstadt7` for 3 episodes with `--repeat 1 --seed 42`, then tested with `--load True
+--repeat 1` using a **different** top-level `--seed 999` (deliberately, to prove replay is
+driven by the saved incident seed file, not by the outer seed coincidentally matching).
+
+Training, last (saved) episode:
+```
+INFO T_REX: Incident happens at edge 168702040#2 at time 2530 lasting for 3840 seconds, lanes=[0, 1], pos=46.90258195942547, random_seed=1924204410
+INFO T_REX: Incident happens at edge 402600768#1 at time 860 lasting for 480 seconds, lanes=[0, 1, 2], pos=16.12940031325934, random_seed=1159652549
+INFO __main__: Saved seeds to MAXPRESSUREingolstadt7-seed_ic1.txt: [1924204410]
+INFO __main__: Saved seeds to MAXPRESSUREingolstadt7-seed_ic2.txt: [1159652549]
+```
+Testing/replay (`--seed 999`, i.e. a different top-level seed):
+```
+INFO __main__: Loaded seeds from files: [1924204410], [1159652549]
+INFO T_REX: Incident happens at edge 168702040#2 at time 2530 lasting for 3840 seconds, lanes=[0, 1], pos=46.90258195942547, random_seed=1924204410
+INFO T_REX: Incident happens at edge 402600768#1 at time 860 lasting for 480 seconds, lanes=[0, 1, 2], pos=16.12940031325934, random_seed=1159652549
+```
+Edge, time, duration, lanes, and position are byte-identical between the recorded and
+replayed episode. Permanent regression test: `tests/test_repeat_seed_replay.py` (checks
+`env.run` doesn't increment a second time when `run_episode` is given a pre-seeded `obs` —
+a second, hidden `reset()` is exactly the failure mode that broke this).
+
+### A.5 `get_arcs_cost` duplicate removal — PASS
+
+Only one definition remains (`T_REX.py:1337`, confirmed by grep). The existing
+`tests/test_icm.py` suite already indirectly validated the surviving (downstream) semantics
+via `calculate_avoided_loss`/`calculate_expected_gain`, but didn't call `get_arcs_cost`
+itself — added direct coverage: `test_get_arcs_cost_returns_downstream_travel_times` (mocks
+a fake network, confirms it returns the correct downstream travel times, non-NaN,
+non-negative) and `test_get_arcs_cost_empty_when_no_downstream_edges`. 9/9 passing in
+`tests/test_icm.py` now (was 7).
+
+### A.6 Dependency/requirements claims — PASS, with one caveat worth noting
+
+Created a genuinely clean virtualenv (`python -m venv`, no packages carried over), installed
+`pip install -r requirements.txt` (83s, no errors), and ran the README's exact documented
+verify-install command (`export LIBSUMO_AS_TRACI=1; python main.py --agent MAXPRESSURE --map
+grid4x4 --eps 1 --strategy 1 --libsumo True`) against that clean interpreter — completed
+successfully, metrics written.
+
+**Caveat**: `libsumo` (the fast in-process SUMO binding, as opposed to `eclipse-sumo`'s
+subprocess-based `traci`) is not itself listed in `requirements.txt` and was not installed
+by it. In the clean venv, `LIBSUMO_AS_TRACI=1` triggered a `UserWarning: Could not import
+libsumo ... falling back to pure python traci` rather than an error — the run still
+succeeded (just slower, via a real spawned subprocess instead of in-process). 🚩 Not a
+failure, but worth a README/requirements note: on a machine without `libsumo` separately
+installed, `--libsumo True` silently degrades to subprocess-based TraCI rather than actually
+using libsumo, contrary to what the flag name and `LIBSUMO_AS_TRACI` env var suggest. Not
+fixed this round (out of Part A's re-verification scope, and not one of the six items asked
+for) — noted for a future pass.
+
 ## Round 4 — verification, attribution, and one real bug
 
 ### 4.1 `arterial4x4` `rm -rf` recovery — verified clean, evidence below (not restated)
