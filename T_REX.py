@@ -20,6 +20,17 @@ class Initializer():
     5. Incident duration
     '''
 
+    # random_pos() draws pos ~ U(10, edge_length - 10) -- a 10m buffer reserved at each
+    # end of the edge (see random_pos's own comment). An edge shorter than 20m can't fit
+    # both buffers with any positive range left between them, which makes that draw's
+    # upper bound fall below its lower bound -- NumPy documents np.random.uniform(low, high)
+    # with high < low as undefined behavior, and in practice this produced negative
+    # positions (confirmed live; see AUDIT_REPORT.md). Edges below this length are excluded
+    # from the incident-candidate pool entirely (random_edge/weighted_random_edge) rather
+    # than clamping the sampled position into a degenerate range, so U(10, edge_length-10)
+    # stays a true uniform draw on every edge that remains eligible.
+    MIN_INCIDENT_EDGE_LENGTH = 20.0  # meters
+
     def __init__(self, map_name, run_num, scenario_folder, warm_up_time, end_time=3600, is_random=True, level=2, pre_seed=None):
         # Currently hardcoded values
         self.slow_zone = 50
@@ -121,12 +132,15 @@ class Initializer():
 
         object_list = traci.edge.getIDList()
         
-        # Filter out invalid edges (junctions, incomplete edges, and dead-ends)
+        # Filter out invalid edges (junctions, incomplete edges, dead-ends, and edges too
+        # short for random_pos()'s U(10, edge_length-10) draw to be well-defined -- see
+        # MIN_INCIDENT_EDGE_LENGTH's comment)
         valid_edges = [
-            edge for edge in object_list 
+            edge for edge in object_list
             if not edge.startswith(':')  # Exclude junctions
             and not any(sub in edge for sub in ['right', 'left', 'bottom', 'top'])  # Exclude incomplete edges
             and len(self.net.getEdge(edge).getOutgoing().keys()) > 0  # Exclude dead-end edges
+            and traci.lane.getLength(f'{edge}_0') >= self.MIN_INCIDENT_EDGE_LENGTH  # Exclude too-short edges
         ]
 
         # # Ensure there are valid edges available
@@ -161,15 +175,19 @@ class Initializer():
         An edge is valid if:
         1. It is not a junction or incomplete edge.
         2. It has outgoing connections (not a dead-end).
+        3. It is at least MIN_INCIDENT_EDGE_LENGTH long.
         """
         object_list = traci.edge.getIDList()
-        
-        # Filter out invalid edges (junctions, incomplete edges, and dead-ends)
+
+        # Filter out invalid edges (junctions, incomplete edges, dead-ends, and edges too
+        # short for random_pos()'s U(10, edge_length-10) draw to be well-defined -- see
+        # MIN_INCIDENT_EDGE_LENGTH's comment)
         valid_edges = [
-            edge for edge in object_list 
+            edge for edge in object_list
             if not edge.startswith(':')  # Exclude junctions
             and not any(sub in edge for sub in ['right', 'left', 'bottom', 'top'])  # Exclude incomplete edges
             and len(self.net.getEdge(edge).getOutgoing().keys()) > 0  # Exclude dead-end edges
+            and traci.lane.getLength(f'{edge}_0') >= self.MIN_INCIDENT_EDGE_LENGTH  # Exclude too-short edges
         ]
 
 
@@ -225,7 +243,12 @@ class Initializer():
     
     def random_pos(self):
         '''
-        Randomly select position of incident
+        Randomly select position of incident.
+
+        Assumes self.edge is at least MIN_INCIDENT_EDGE_LENGTH long -- guaranteed by
+        random_edge()/weighted_random_edge()'s candidate-pool filtering, not re-checked
+        here. Without that guarantee, edge_length - 10 could fall below 10, making this
+        an undefined-behavior call to np.random.uniform(low > high).
         '''
 
         edge_length = traci.lane.getLength(f'{self.edge}_0')

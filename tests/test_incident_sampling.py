@@ -104,3 +104,109 @@ def test_random_lanes_level_1_never_blocks_all_lanes(initializer):
         for _ in range(200):
             initializer.random_lanes()
             assert 1 <= len(initializer.lanes) < 4
+
+
+class _FakeDownstreamEdge:
+    """random_edge() calls .getID() on each key of getOutgoing()'s dict (sumolib
+    Edge objects, not strings) -- provide that."""
+
+    def getID(self):
+        return "downstream"
+
+
+class _FakeEdge:
+    """Minimal stand-in for a sumolib net Edge -- only what random_edge()/
+    weighted_random_edge() call: getOutgoing()."""
+
+    def __init__(self, has_outgoing=True):
+        self._has_outgoing = has_outgoing
+
+    def getOutgoing(self):
+        return {_FakeDownstreamEdge(): None} if self._has_outgoing else {}
+
+
+class _FakeNet:
+    """Minimal stand-in for a sumolib net Net -- only getEdge(edge_id)."""
+
+    def __init__(self, edges):
+        self._edges = edges
+
+    def getEdge(self, edge_id):
+        return self._edges[edge_id]
+
+
+def _patch_edge_lengths(lengths):
+    """Return a context manager patching traci.lane.getLength to answer per-edge,
+    keyed the same way the code under test looks it up: f'{edge}_0'."""
+    def fake_get_length(lane_id):
+        edge_id = lane_id.rsplit("_", 1)[0]
+        return lengths[edge_id]
+    return patch.object(T_REX.traci.lane, "getLength", side_effect=fake_get_length)
+
+
+def test_random_edge_excludes_edges_shorter_than_min_length(initializer):
+    # short_edge is 15m (< MIN_INCIDENT_EDGE_LENGTH=20) and must never be selected;
+    # long_edge is 200m and must be the only edge ever selected here.
+    initializer.net = _FakeNet({"short_edge": _FakeEdge(), "long_edge": _FakeEdge()})
+    lengths = {"short_edge": 15.0, "long_edge": 200.0}
+
+    with patch.object(T_REX.traci.edge, "getIDList", return_value=["short_edge", "long_edge"]), \
+         _patch_edge_lengths(lengths):
+        selected = set()
+        for _ in range(100):
+            initializer.random_edge()
+            selected.add(initializer.edge)
+
+    assert selected == {"long_edge"}
+
+
+def test_random_edge_boundary_length_is_included(initializer):
+    # An edge of exactly MIN_INCIDENT_EDGE_LENGTH (20m) leaves zero room, not negative
+    # room -- U(10, 10) is well-defined (numpy returns 10.0 deterministically when
+    # low == high) -- so it should be eligible, not excluded.
+    initializer.net = _FakeNet({"boundary_edge": _FakeEdge()})
+    lengths = {"boundary_edge": T_REX.Initializer.MIN_INCIDENT_EDGE_LENGTH}
+
+    with patch.object(T_REX.traci.edge, "getIDList", return_value=["boundary_edge"]), \
+         _patch_edge_lengths(lengths):
+        initializer.random_edge()
+
+    assert initializer.edge == "boundary_edge"
+
+
+def test_weighted_random_edge_excludes_edges_shorter_than_min_length(initializer):
+    initializer.net = _FakeNet({"short_edge": _FakeEdge(), "long_edge": _FakeEdge()})
+    initializer.edge_probabilities = {"short_edge": 0.9, "long_edge": 0.1}
+    lengths = {"short_edge": 15.0, "long_edge": 200.0}
+
+    with patch.object(T_REX.traci.edge, "getIDList", return_value=["short_edge", "long_edge"]), \
+         _patch_edge_lengths(lengths):
+        selected = set()
+        for _ in range(100):
+            initializer.weighted_random_edge()
+            selected.add(initializer.edge)
+
+    # short_edge had 90% of the probability mass, but is short -- if it weren't excluded
+    # it would dominate the selection. It must never appear.
+    assert selected == {"long_edge"}
+
+
+def test_random_pos_never_negative_end_to_end(initializer):
+    # random_edge() -> random_pos() should never produce a negative position, for a mix
+    # of edge lengths including some that would have failed pre-fix (short_edge here
+    # would have made np.random.uniform(10, 15-10=5) undefined -- low > high).
+    initializer.net = _FakeNet({
+        "short_edge": _FakeEdge(),
+        "boundary_edge": _FakeEdge(),
+        "long_edge": _FakeEdge(),
+    })
+    lengths = {"short_edge": 15.0, "boundary_edge": 20.0, "long_edge": 200.0}
+
+    with patch.object(T_REX.traci.edge, "getIDList",
+                       return_value=["short_edge", "boundary_edge", "long_edge"]), \
+         _patch_edge_lengths(lengths):
+        for _ in range(200):
+            initializer.random_edge()
+            assert initializer.edge != "short_edge"
+            initializer.random_pos()
+            assert initializer.pos >= 10
