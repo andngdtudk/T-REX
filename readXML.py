@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import sys
-from resco_benchmark.config.map_config import map_configs
+from config.map_config import map_configs
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
